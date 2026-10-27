@@ -177,7 +177,8 @@ describe('generateExplanations', () => {
 
   it('bestMove SAN é convertido corretamente', () => {
     const analysis: PositionAnalysis[] = [
-      makePos(1, 30, null, 'best', AFTER_E4, 'e4', 'e2e4'),
+      makePos(0, 0, null, null, START_FEN, null, 'e2e4'),
+      makePos(1, 30, null, 'best', AFTER_E4, 'e4'),
     ];
     const board = [
       { fen: START_FEN, ply: 0, move: null },
@@ -189,7 +190,8 @@ describe('generateExplanations', () => {
 
   it('variante principal é convertida para SAN', () => {
     const analysis: PositionAnalysis[] = [
-      makePos(1, -300, null, 'blunder', '', 'b4', 'e2e4', 'e2e4 e7e5 g1f3'),
+      makePos(0, 0, null, null, START_FEN, null, 'e2e4', 'e2e4 e7e5 g1f3'),
+      makePos(1, -300, null, 'blunder', '', 'b4'),
     ];
     const board = [
       { fen: START_FEN, ply: 0, move: null },

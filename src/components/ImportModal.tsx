@@ -432,7 +432,7 @@ function UsernameImportTab({ onClose, onImported }: { onClose: () => void; onImp
         setProgress({ phase: 'Importando…', current: i + 1, total: parseResult.games.length });
 
         const pgnHash = await computePgnHash(game);
-        const userColor = detectUserColor(game, profile.display_name || profile.email);
+        const userColor = detectUserColor(game, username.trim());
 
         const { error } = await supabase.from('games').insert({
           user_id: profile.id,

@@ -51,11 +51,14 @@ export function generateExercises(
     if (exercises.length >= limit) break;
     const key = `${game.gameId}-${position.ply}`;
     if (seen.has(key)) continue;
-    if (!position.bestMove) continue;
+    if (!position.classification) continue;
 
     // Pegar a posição ANTERIOR ao erro (onde o usuário deveria ter jogado)
     const previousPosition = game.positions.find((p) => p.ply === position.ply - 1);
     if (!previousPosition) continue;
+
+    // O bestMove virá da posição ANTERIOR, não da posição do erro
+    if (!previousPosition.bestMove) continue;
 
     const exercise = buildExercise(game, previousPosition, position);
     if (exercise) {
@@ -76,25 +79,28 @@ function buildExercise(
     const chess = new Chess(position.fen);
     const sideToMove = chess.turn() === 'w' ? 'w' : 'b';
 
-    // O melhor lance é o bestMove da análise da posição seguinte
-    const bestMove = errorPosition.bestMove;
+    // O melhor lance é o bestMove da análise da posição ANTERIOR ao erro
+    // (a posição que o usuário deveria ter jogado, não a posição resultante)
+    const bestMove = position.bestMove;
 
     // Converter para UCI se necessário (chess.js aceita SAN e UCI)
     // O bestMove do Stockfish vem em UCI (ex: e2e4)
-    // Verificar se é legal
+    // Verificar se é legal na posição ANTERIOR ao erro
     let moveVerified = false;
-    try {
-      const testChess = new Chess(position.fen);
-      testChess.move({ from: bestMove!.slice(0, 2), to: bestMove!.slice(2, 4) });
-      moveVerified = true;
-    } catch {
-      // Tentar como SAN
+    if (bestMove) {
       try {
         const testChess = new Chess(position.fen);
-        testChess.move(bestMove!);
+        testChess.move({ from: bestMove.slice(0, 2), to: bestMove.slice(2, 4) });
         moveVerified = true;
       } catch {
-        moveVerified = false;
+        // Tentar como SAN
+        try {
+          const testChess = new Chess(position.fen);
+          testChess.move(bestMove);
+          moveVerified = true;
+        } catch {
+          moveVerified = false;
+        }
       }
     }
 
@@ -112,8 +118,8 @@ function buildExercise(
       fen: position.fen,
       sideToMove,
       bestMove,
-      acceptableMoves: [], // Sem MultiPV, não podemos validar alternativas
-      pv: errorPosition.pv,
+      acceptableMoves: [],
+      pv: position.pv,
       category,
       difficulty,
       instruction,
@@ -162,7 +168,7 @@ function buildInstruction(category: WeaknessCategory, side: 'w' | 'b'): string {
 
 function buildExplanation(errorPos: PositionAnalysis, position: PositionAnalysis): string {
   const playedMove = errorPos.move ?? 'o lance jogado';
-  const bestMove = errorPos.bestMove ?? 'o melhor lance';
+  const bestMove = position.bestMove ?? 'o melhor lance';
   const classification = errorPos.classification ?? '';
 
   let evalInfo = '';

@@ -10,6 +10,8 @@ import {
   type PositionAnalysis,
   type AnalysisProgress,
 } from '@/lib/analysis';
+import { generateExercises } from '@/lib/exercises';
+import type { GameAnalysisData } from '@/lib/diagnosis';
 
 export type AnalysisStatus = 'idle' | 'loading_existing' | 'aguardando' | 'em_andamento' | 'concluida' | 'cancelada' | 'falhou';
 
@@ -308,6 +310,9 @@ export function useGameAnalysis(gameId: string | undefined) {
         // Incrementar consumo no backend
         await incrementUsage(gameId);
 
+        // Gerar exercícios automaticamente a partir dos erros da partida
+        await autoGenerateExercises(gameId, profile.id, result);
+
         setState((s) => ({
           ...s,
           status: 'concluida',
@@ -402,4 +407,47 @@ function collectPartialPositions(
     return [...previous, latest];
   }
   return previous.slice(0, current);
+}
+
+async function autoGenerateExercises(
+  gameId: string,
+  userId: string,
+  result: FullAnalysis,
+): Promise<void> {
+  const gameData: GameAnalysisData = {
+    gameId,
+    playedAt: null,
+    positions: result.positions,
+    summary: {
+      inaccuracies: result.summary.inaccuracies,
+      mistakes: result.summary.mistakes,
+      blunders: result.summary.blunders,
+      accuracyWhite: result.summary.accuracyWhite,
+      accuracyBlack: result.summary.accuracyBlack,
+      totalMoves: result.summary.totalMoves,
+    },
+  };
+
+  const newExercises = generateExercises([gameData], 20);
+  if (newExercises.length === 0) return;
+
+  const exerciseRows = newExercises.map((ex) => ({
+    user_id: userId,
+    game_id: ex.gameId,
+    source_ply: ex.sourcePly,
+    fen: ex.fen,
+    side_to_move: ex.sideToMove,
+    best_move: ex.bestMove,
+    acceptable_moves: ex.acceptableMoves,
+    pv: ex.pv,
+    category: ex.category,
+    difficulty: ex.difficulty,
+    instruction: ex.instruction,
+    explanation: ex.explanation,
+  }));
+
+  await supabase.from('exercises').upsert(exerciseRows, {
+    onConflict: 'user_id,game_id,source_ply',
+    ignoreDuplicates: true,
+  });
 }

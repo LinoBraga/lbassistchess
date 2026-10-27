@@ -593,7 +593,7 @@ function gameAccuracy(positions: PositionAnalysis[], color: 'w' | 'b'): number |
   const allPlies = [0, ...plyCps.map((p) => p.ply)];
 
   // Determinar windowSize = clamp(cps.length / 10, 2, 8).
-  const windowSize = Math.max(2, Math.min(8, Math.floor(cps.length / 10)));
+  const windowSize = Math.max(2, Math.min(8, Math.floor(plyCps.length / 10)));
 
   // Construir janelas conforme o Lichess:
   //   List.fill(min(windowSize, n) - 2)(allWinPercents.take(windowSize))

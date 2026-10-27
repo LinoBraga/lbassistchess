@@ -196,10 +196,10 @@ export function generateExplanations(
 
     // Converter lances para SAN
     const moveSan = pos.move ?? '?';
-    const bestMoveSan = prevFen ? uciToSan(prevFen, pos.bestMove) : null;
+    const bestMoveSan = prevFen ? uciToSan(prevFen, prevPos?.bestMove ?? null) : null;
 
     // Variante principal em SAN
-    const pvSan = prevFen && pos.pv ? pvToSan(prevFen, pos.pv, 8) : null;
+    const pvSan = prevFen && prevPos?.pv ? pvToSan(prevFen, prevPos.pv, 8) : null;
 
     // Perda de avaliação na perspectiva do jogador
     const lossCp = computeLossCp(

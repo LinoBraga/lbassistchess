@@ -268,7 +268,7 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
                         title={exp.whatHappened}
                       >
                         <span className="text-content-muted">
-                          {Math.ceil(exp.ply / 2)}{exp.ply % 2 ? '...' : '.'}
+                          {Math.ceil(exp.ply / 2)}{exp.ply % 2 ? '.' : '...'}
                         </span>{' '}
                         <span className="text-content-primary">{exp.moveSan}</span>
                         {cls && (
@@ -331,7 +331,7 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
                       className="w-full flex items-center gap-2 rounded-lg bg-ink border border-ink-border px-3 py-2 hover:border-brand-500/30 transition-colors text-left"
                     >
                       <span className="text-xs text-content-muted">
-                        {Math.ceil(e.ply / 2)}{e.ply % 2 ? '...' : '.'}
+                        {Math.ceil(e.ply / 2)}{e.ply % 2 ? '.' : '...'}
                       </span>
                       <span className="text-xs font-mono text-content-primary">{e.move}</span>
                       <span className={`text-[10px] font-semibold ${classificationLabel(e.classification).color}`}>
@@ -357,7 +357,7 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
                       className="w-full flex items-center gap-2 rounded-lg bg-ink border border-ink-border px-3 py-2 hover:border-brand-500/30 transition-colors text-left"
                     >
                       <span className="text-xs text-content-muted">
-                        {Math.ceil(e.ply / 2)}{e.ply % 2 ? '...' : '.'}
+                        {Math.ceil(e.ply / 2)}{e.ply % 2 ? '.' : '...'}
                       </span>
                       <span className="text-xs font-mono text-content-primary">{e.move}</span>
                       <span className={`text-[10px] font-semibold ${classificationLabel(e.classification).color}`}>
@@ -434,10 +434,10 @@ export function buildErrorList(
       ply: pos.ply,
       move: pos.move ?? '?',
       classification: pos.classification,
-      bestMove: pos.bestMove,
+      bestMove: prevPos?.bestMove ?? null,
       evalCp: pos.evalCp,
       evalMate: pos.evalMate,
-      pv: pos.pv,
+      pv: prevPos?.pv ?? null,
       prevFen: prevBoard?.fen ?? '',
       prevEvalCp: prevPos?.evalCp ?? null,
       prevEvalMate: prevPos?.evalMate ?? null,
@@ -483,7 +483,7 @@ export function findCriticalMoments(
     if (!pos.classification) continue;
     if (pos.classification === 'blunder' || pos.classification === 'mistake') {
       const moveNum = Math.ceil(pos.ply / 2);
-      const dots = pos.ply % 2 ? '...' : '.';
+      const dots = pos.ply % 2 ? '.' : '...';
       moments.push({
         ply: pos.ply,
         description: `Lance ${moveNum}${dots} ${pos.move ?? ''} — ${classificationLabel(pos.classification).label}`,
@@ -605,7 +605,7 @@ function ExplanationCard({
 }) {
   const cls = explanation.classification ? classificationLabel(explanation.classification) : null;
   const moveNum = Math.ceil(explanation.ply / 2);
-  const dots = explanation.ply % 2 ? '...' : '.';
+  const dots = explanation.ply % 2 ? '.' : '...';
   const [showPv, setShowPv] = useState(false);
 
   return (
@@ -774,7 +774,7 @@ function ErrorCard({
 }) {
   const cls = classificationLabel(error.classification);
   const moveNum = Math.ceil(error.ply / 2);
-  const dots = error.ply % 2 ? '...' : '.';
+  const dots = error.ply % 2 ? '.' : '...';
   const bestSan = error.prevFen ? uciToSanSafe(error.prevFen, error.bestMove) : null;
   const prevEvalStr = formatEval(error.prevEvalCp, error.prevEvalMate);
   const afterEvalStr = formatEval(error.evalCp, error.evalMate);

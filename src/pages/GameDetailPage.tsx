@@ -358,7 +358,7 @@ export function GameDetailPage() {
             game={game}
             positions={positions}
             onJumpToPly={goToPly}
-            onCreateExercise={(ply) => toast('info', `Criar exercício a partir do lance ${Math.ceil(ply / 2)}${ply % 2 ? '...' : '.'} — em breve.`)}
+            onCreateExercise={(ply) => navigate(`/app/treinar`)}
           />
         </>
       )}
