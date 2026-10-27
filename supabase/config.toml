@@ -1,0 +1,14 @@
+[functions.asaas-checkout]
+verify_jwt = true
+
+[functions.asaas-webhook]
+verify_jwt = false
+
+[functions.asaas-billing]
+verify_jwt = true
+
+[functions.asaas-usage]
+verify_jwt = true
+
+[functions.fetch-games]
+verify_jwt = true
