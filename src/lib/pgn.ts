@@ -83,6 +83,31 @@ export async function computePgnHash(game: {
     .join('');
 }
 
+export interface GameMovePosition {
+  fen: string;
+  move: string | null;
+  ply: number;
+}
+
+/**
+ * Reconstrói a sequência de lances e posições de uma partida a partir do PGN.
+ * Retorna os lances em SAN na ordem jogada e uma posição por ply (0 = inicial).
+ * Reproduz o mesmo fluxo usado pelo analisador (src/lib/analysis.ts): carrega o
+ * PGN, captura o histórico e o repõe a partir da posição inicial.
+ */
+export function extractGameMoves(pgn: string): { moves: string[]; positions: GameMovePosition[] } {
+  const chess = new Chess();
+  chess.loadPgn(pgn);
+  const moves = chess.history();
+  chess.reset();
+  const positions: GameMovePosition[] = [{ fen: chess.fen(), move: null, ply: 0 }];
+  for (let i = 0; i < moves.length; i++) {
+    chess.move(moves[i]);
+    positions.push({ fen: chess.fen(), move: moves[i], ply: i + 1 });
+  }
+  return { moves, positions };
+}
+
 /**
  * Faz o parse de um arquivo PGN completo, extraindo metadados e lances.
  * Rejeita PGNs inválidos e retorna um relatório com a contagem.
@@ -94,10 +119,9 @@ export function parsePgnFile(content: string): ParseResult {
 
   chunks.forEach((pgn, i) => {
     try {
-      const chess = new Chess();
-      chess.loadPgn(pgn);
+      const { moves: history } = extractGameMoves(pgn);
 
-      if (chess.history().length === 0) {
+      if (history.length === 0) {
         errors.push(`Partida ${i + 1}: PGN inválido — não foi possível carregar.`);
         return;
       }
@@ -113,7 +137,6 @@ export function parsePgnFile(content: string): ParseResult {
       const link = getHeader(pgn, 'Link') || getHeader(pgn, 'Site');
       const externalId = link ? link : null;
 
-      const history = chess.history();
       const playedAt = parsePgnDate(dateStr, roundTime);
 
       games.push({

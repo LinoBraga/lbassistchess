@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Chess } from 'chess.js';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -29,7 +28,7 @@ import { LoadingState, ErrorState } from '@/components/ui/States';
 import { toast } from '@/components/ui/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { useGameAnalysis } from '@/hooks/useGameAnalysis';
-import { formatGameDate, formatResult } from '@/lib/pgn';
+import { formatGameDate, formatResult, extractGameMoves } from '@/lib/pgn';
 import {
   formatEval,
   evalBarColor,
@@ -71,17 +70,7 @@ export function GameDetailPage() {
   const positions = useMemo(() => {
     if (!game?.pgn) return [];
     try {
-      const chess = new Chess();
-      const fens: { fen: string; move: string | null; ply: number }[] = [
-        { fen: chess.fen(), move: null, ply: 0 },
-      ];
-      const moves = chess.history();
-      chess.reset();
-      for (let i = 0; i < moves.length; i++) {
-        chess.move(moves[i]);
-        fens.push({ fen: chess.fen(), move: moves[i], ply: i + 1 });
-      }
-      return fens;
+      return extractGameMoves(game.pgn).positions;
     } catch {
       return [];
     }
@@ -90,8 +79,7 @@ export function GameDetailPage() {
   const movePairs = useMemo(() => {
     if (!game?.pgn) return [];
     try {
-      const chess = new Chess();
-      const moves = chess.history();
+      const { moves } = extractGameMoves(game.pgn);
       const pairs: { num: number; white: string; black: string | null }[] = [];
       for (let i = 0; i < moves.length; i += 2) {
         pairs.push({
