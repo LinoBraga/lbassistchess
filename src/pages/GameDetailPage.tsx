@@ -14,7 +14,6 @@ import {
   Square,
   RefreshCw,
   Cpu,
-  TrendingUp,
   AlertTriangle,
   XCircle,
   Target,
@@ -22,6 +21,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Chessboard } from '@/components/Chessboard';
+import { GameReport } from '@/components/GameReport';
+import { EvalGraph } from '@/components/EvalGraph';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { LoadingState, ErrorState } from '@/components/ui/States';
@@ -34,7 +35,6 @@ import {
   evalBarColor,
   classificationLabel,
   type PositionAnalysis,
-  type FullAnalysis,
 } from '@/lib/analysis';
 
 interface GameDetail {
@@ -315,9 +315,23 @@ export function GameDetailPage() {
         </div>
       </div>
 
-      {/* Analysis summary */}
-      {analysisState.status === 'concluida' && analysisState.analysis?.summary && (
-        <AnalysisSummary summary={analysisState.analysis.summary} />
+      {/* Analysis summary (relatório integrado) */}
+      {analysisState.status === 'concluida' && analysisState.analysis && game && (
+        <>
+          <EvalGraph
+            positions={analysisState.analysis.positions}
+            currentPly={currentPly}
+            onSelectPly={goToPly}
+            totalPlies={positions.length - 1}
+          />
+          <GameReport
+            analysis={analysisState.analysis}
+            game={game}
+            positions={positions}
+            onJumpToPly={goToPly}
+            onCreateExercise={(ply) => toast('info', `Criar exercício a partir do lance ${Math.ceil(ply / 2)}${ply % 2 ? '...' : '.'} — em breve.`)}
+          />
+        </>
       )}
 
       {/* Metadata */}
@@ -546,44 +560,6 @@ function ClassificationBadge({ cls }: { cls: NonNullable<PositionAnalysis['class
     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${color} ${bg}`}>
       {label}
     </span>
-  );
-}
-
-function AnalysisSummary({ summary }: { summary: FullAnalysis['summary'] }) {
-  return (
-    <div className="card-raised p-5">
-      <h2 className="text-base font-bold text-content-primary flex items-center gap-2 mb-4">
-        <TrendingUp className="h-4.5 w-4.5 text-brand-300" />
-        Resumo da análise
-      </h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <SummaryStat label="Imprecisões" value={summary.inaccuracies} color="text-warning-300" />
-        <SummaryStat label="Erros" value={summary.mistakes} color="text-orange-400" />
-        <SummaryStat label="Erros graves" value={summary.blunders} color="text-danger-400" />
-        <SummaryStat
-          label="Acurácia brancas"
-          value={summary.accuracyWhite !== null ? `${summary.accuracyWhite}%` : '—'}
-          color="text-success-400"
-        />
-        <SummaryStat
-          label="Acurácia pretas"
-          value={summary.accuracyBlack !== null ? `${summary.accuracyBlack}%` : '—'}
-          color="text-cyan-400"
-        />
-      </div>
-      <p className="text-xs text-content-muted mt-4">
-        Acurácia calculada a partir da perda de avaliação média por lance. Valores aproximados — não são a fórmula exata do Lichess.
-      </p>
-    </div>
-  );
-}
-
-function SummaryStat({ label, value, color }: { label: string; value: number | string; color: string }) {
-  return (
-    <div className="text-center">
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      <p className="text-xs text-content-secondary mt-1">{label}</p>
-    </div>
   );
 }
 

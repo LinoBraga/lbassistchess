@@ -11,6 +11,7 @@
 let engine: Worker | null = null;
 let ready = false;
 const pendingCommands: string[] = [];
+let currentRequestId: number | undefined = undefined;
 
 interface AnalysisRequest {
   type: 'init' | 'analyze' | 'stop' | 'quit';
@@ -18,6 +19,7 @@ interface AnalysisRequest {
   depth?: number;
   movetime?: number;
   multiPv?: number;
+  requestId?: number;
 }
 
 interface AnalysisResult {
@@ -29,15 +31,39 @@ interface AnalysisResult {
   bestMove?: string;
   multiPv?: number;
   wdl?: { win: number; draw: number; loss: number };
+  requestId?: number;
+}
+
+// Resolve o caminho do loader do Stockfish relativo à raiz do app,
+// respeitando o subcaminho de hospedagem (base) definido no Vite.
+function stockfishUrl(): string {
+  // import.meta.env.BASE_URL é "/" em dev e no root, ou "/subpath/" quando
+  // o app é hospedado em subcaminho. Garante que /stockfish.js e seu .wasm
+  // sejam buscados no caminho correto em produção.
+  const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
+  return `${base}/stockfish.js`;
 }
 
 function initEngine() {
-  // O arquivo stockfish.js em /public carrega stockfish.wasm do mesmo diretório
-  engine = new Worker('/stockfish.js');
+  const url = stockfishUrl();
+  console.info('[stockfishWorker] inicializando engine a partir de', url);
+
+  try {
+    engine = new Worker(url);
+  } catch (err) {
+    console.error('[stockfishWorker] falha ao criar Worker:', err);
+    postMessage({ type: 'error', bestMove: undefined } satisfies AnalysisResult);
+    return;
+  }
+
+  let initialized = false;
 
   engine.addEventListener('message', (e: MessageEvent<string>) => {
     const line = e.data;
     if (typeof line !== 'string') return;
+
+    // Log de diagnóstico: mostra tudo que vem do motor até o readyok.
+    if (!initialized) console.debug('[stockfishWorker] <<', line);
 
     if (line === 'uciok') {
       engine?.postMessage('isready');
@@ -45,6 +71,7 @@ function initEngine() {
     }
 
     if (line === 'readyok') {
+      initialized = true;
       ready = true;
       flushCommands();
       postMessage({ type: 'ready' } satisfies AnalysisResult);
@@ -53,20 +80,24 @@ function initEngine() {
 
     if (line.startsWith('info')) {
       const result = parseInfoLine(line);
-      if (result) postMessage(result satisfies AnalysisResult);
+      if (result) {
+        result.requestId = currentRequestId;
+        postMessage(result satisfies AnalysisResult);
+      }
       return;
     }
 
     if (line.startsWith('bestmove')) {
       const match = line.match(/bestmove (\S+)/);
       if (match) {
-        postMessage({ type: 'bestmove', bestMove: match[1] } satisfies AnalysisResult);
+        postMessage({ type: 'bestmove', bestMove: match[1], requestId: currentRequestId } satisfies AnalysisResult);
       }
       return;
     }
   });
 
   engine.addEventListener('error', (e: ErrorEvent) => {
+    console.error('[stockfishWorker] erro no Worker do Stockfish:', e.message, e.filename, e.lineno);
     postMessage({ type: 'error' } satisfies AnalysisResult);
   });
 
@@ -127,6 +158,7 @@ self.onmessage = (e: MessageEvent<AnalysisRequest>) => {
 
     case 'analyze': {
       if (!msg.fen) break;
+      currentRequestId = msg.requestId;
       sendCommand('ucinewgame');
       sendCommand(`position fen ${msg.fen}`);
 

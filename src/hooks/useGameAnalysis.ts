@@ -82,15 +82,7 @@ export function useGameAnalysis(gameId: string | undefined) {
         status: 'concluida',
         analysis: {
           positions: stored.positions,
-          summary: stored.summary ?? {
-            inaccuracies: 0,
-            mistakes: 0,
-            blunders: 0,
-            accuracyWhite: null,
-            accuracyBlack: null,
-            totalMoves: 0,
-            analyzedAt: new Date().toISOString(),
-          },
+          summary: stored.summary ?? emptySummary(),
         },
         progress: null,
         error: null,

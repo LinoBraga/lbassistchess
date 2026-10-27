@@ -1,5 +1,14 @@
 import { Chess } from 'chess.js';
 
+/**
+ * Resultado da análise de uma posição.
+ *
+ * CONVENÇÃO DE AVALIAÇÃO: evalCp e evalMate são SEMPRE da perspectiva das BRANCAS:
+ *   evalCp  > 0  → brancas vantajosas;  < 0 → pretas vantajosas
+ *   evalMate > 0 → brancas dão mate;    < 0 → pretas dão mate
+ * O Stockfish reporta na perspectiva do lado que joga; a normalização acontece
+ * em GameAnalyzer.analyzeGame antes de armazenar aqui.
+ */
 export interface PositionAnalysis {
   ply: number;
   fen: string;
@@ -70,6 +79,7 @@ interface WorkerMessage {
   pv?: string;
   bestMove?: string;
   multiPv?: number;
+  requestId?: number;
 }
 
 /**
@@ -86,6 +96,7 @@ export class GameAnalyzer {
   private worker: Worker | null = null;
   private ready = false;
   private cancelled = false;
+  private requestId = 0;
 
   async init(): Promise<void> {
     this.worker = new Worker(
@@ -99,8 +110,11 @@ export class GameAnalyzer {
         return;
       }
 
+      // Timeout específico do handshake UCI (uci -> uciok -> isready -> readyok).
+      // 30s cobre downloads do .wasm em conexões lentas; se expirar, é falha de
+      // carregamento/ handshake, não de análise.
       const timeout = setTimeout(() => {
-        reject(new Error('Timeout ao inicializar Stockfish'));
+        reject(new Error('Timeout ao inicializar Stockfish: o motor não respondeu ao handshake UCI (uciok/readyok) em 30s. Verifique se stockfish.js e stockfish.wasm estão acessíveis no caminho correto.'));
       }, 30000);
 
       this.worker.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
@@ -110,8 +124,14 @@ export class GameAnalyzer {
           resolve();
         } else if (e.data.type === 'error') {
           clearTimeout(timeout);
-          reject(new Error('Erro ao carregar Stockfish'));
+          reject(new Error('Falha ao carregar o Stockfish no navegador. Verifique no console se stockfish.wasm está acessível.'));
         }
+      });
+
+      this.worker.addEventListener('error', (e: ErrorEvent) => {
+        clearTimeout(timeout);
+        console.error('[GameAnalyzer] erro no worker:', e.message, e.filename, e.lineno);
+        reject(new Error(`Erro ao carregar o worker do Stockfish: ${e.message || 'arquivo não encontrado ou MIME incorreto'}`));
       });
 
       this.worker.postMessage({ type: 'init' });
@@ -152,29 +172,49 @@ export class GameAnalyzer {
       const pos = positions[i];
       const evaluation = await this.analyzePosition(pos.fen, config);
 
+      // CRÍTICO: o Stockfish reporta score cp/mate na perspectiva do LADO QUE JOGA,
+      // não das brancas. Normalizamos para a perspectiva das BRANCAS aqui, de forma
+      // que toda a lógica de classificação e exibição trabalhe com uma convenção única:
+      //   evalCp  > 0  → brancas vantajosas
+      //   evalMate > 0 → brancas dão mate; < 0 → pretas dão mate
+      // A posição i é o resultado do lance i, jogado pelo lado que tinha a vez em
+      // positions[i-1]. A avaliação de `pos.fen` é da perspectiva de quem joga em
+      // `pos.fen`, ou seja, o lado OPPOSTO ao que jogou o lance.
+      const sideToMoveAtPos = getSideToMove(pos.fen); // quem joga em pos.fen
+      const normalizedCp =
+        evaluation.scoreCp === null
+          ? null
+          : sideToMoveAtPos === 'w' ? evaluation.scoreCp : -evaluation.scoreCp;
+      const normalizedMate =
+        evaluation.scoreMate === null
+          ? null
+          : sideToMoveAtPos === 'w' ? evaluation.scoreMate : -evaluation.scoreMate;
+
       const positionResult: PositionAnalysis = {
         ply: pos.ply,
         fen: pos.fen,
         move: pos.move || null,
         bestMove: evaluation.bestMove,
-        evalCp: evaluation.scoreCp ?? null,
-        evalMate: evaluation.scoreMate ?? null,
+        // Avaliações normalizadas para a perspectiva das brancas.
+        evalCp: normalizedCp,
+        evalMate: normalizedMate,
         depth: evaluation.depth ?? 0,
         pv: evaluation.pv ?? null,
         classification: null,
       };
 
-      // Classificar o lance (a posição i é o resultado do lance i, que foi jogado na posição i-1)
+      // Classificar o lance (a posição i é o resultado do lance i, que foi jogado na posição i-1).
+      // A avaliação "antes" é da posição i-1 (normalizada para brancas); a "depois" é da posição i.
       if (i > 0 && pos.move) {
         positionResult.classification = classifyMove(
           prevEval,
-          { cp: evaluation.scoreCp ?? null, mate: evaluation.scoreMate ?? null },
+          { cp: normalizedCp, mate: normalizedMate },
           getSideToMove(positions[i - 1].fen), // quem jogou o lance
         );
       }
 
       results.push(positionResult);
-      prevEval = { cp: evaluation.scoreCp ?? null, mate: evaluation.scoreMate ?? null };
+      prevEval = { cp: normalizedCp, mate: normalizedMate };
 
       onProgress({
         current: i + 1,
@@ -189,6 +229,15 @@ export class GameAnalyzer {
 
   /**
    * Avalia uma única posição FEN com o Stockfish.
+   *
+   * Cada chamada recebe um requestId exclusivo. O handler ignora qualquer
+   * mensagem (info/bestmove) que não corresponda ao requestId atual, para
+   * evitar que respostas atrasadas de uma análise anterior sobrescrevam os
+   * resultados da posição correta.
+   *
+   * Além disso, valida a legalidade do bestMove retornado usando chess.js
+   * na FEN enviada. Se o lance for ilegal (ex: peça em casa vazia), o
+   * resultado é descartado e bestMove fica null.
    */
   private analyzePosition(
     fen: string,
@@ -205,6 +254,8 @@ export class GameAnalyzer {
         reject(new Error('Worker não inicializado'));
         return;
       }
+
+      const currentRequestId = ++this.requestId;
 
       let bestResult: {
         scoreCp: number | null;
@@ -223,8 +274,10 @@ export class GameAnalyzer {
       const handler = (e: MessageEvent<WorkerMessage>) => {
         const msg = e.data;
 
+        // Ignorar mensagens de solicitações anteriores (respostas atrasadas).
+        if (msg.requestId !== undefined && msg.requestId !== currentRequestId) return;
+
         if (msg.type === 'info' && (msg.multiPv === undefined || msg.multiPv === 1)) {
-          // Atualizar a melhor avaliação (profundidade mais alta)
           if (msg.depth && msg.depth >= bestResult.depth) {
             bestResult = {
               scoreCp: msg.scoreCp ?? null,
@@ -239,6 +292,22 @@ export class GameAnalyzer {
           if (resolved) return;
           resolved = true;
           bestMove = msg.bestMove ?? null;
+
+          // Validar a legalidade do bestMove na posição analisada.
+          // Se o lance for ilegal, descartar — provavelmente é uma resposta
+          // atrasada de uma posição anterior que vazou apesar do requestId.
+          if (bestMove && bestMove !== '(none)') {
+            if (!isLegalMove(fen, bestMove)) {
+              console.warn(
+                `[GameAnalyzer] bestMove "${bestMove}" é ilegal na FEN ${fen}. ` +
+                `Descartando resultado — possível resposta atrasada da posição anterior.`,
+              );
+              bestMove = null;
+            }
+          } else {
+            bestMove = null;
+          }
+
           cleanup();
           resolve({
             scoreCp: bestResult.scoreCp,
@@ -259,13 +328,13 @@ export class GameAnalyzer {
 
       this.worker.addEventListener('message', handler);
 
-      // Enviar comando de análise
       this.worker.postMessage({
         type: 'analyze',
         fen,
         depth: config.depth,
         movetime: config.movetime,
         multiPv: config.multiPv,
+        requestId: currentRequestId,
       });
     });
   }
@@ -293,6 +362,24 @@ export class GameAnalyzer {
  */
 function getSideToMove(fen: string): 'w' | 'b' {
   return fen.split(' ')[1] === 'w' ? 'w' : 'b';
+}
+
+/**
+ * Verifica se um lance UCI (ex: "e2e4", "g1f3") é legal na posição dada.
+ * Usa chess.js para validar. Retorna false se o lance for ilegal ou se
+ * a FEN for inválida.
+ */
+export function isLegalMove(fen: string, uci: string): boolean {
+  try {
+    const chess = new Chess(fen);
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const promotion = uci.length > 4 ? uci[4] : undefined;
+    const move = chess.move({ from, to, promotion });
+    return move !== null;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -326,22 +413,6 @@ export function classifyMove(
     return 'best';
   }
 
-  // Converter mate para centipeões para comparação
-  let beforeCp: number;
-  let afterCp: number;
-
-  if (before.mate !== null) {
-    beforeCp = before.mate > 0 ? 10000 : -10000;
-  } else {
-    beforeCp = before.cp ?? 0;
-  }
-
-  if (after.mate !== null) {
-    afterCp = after.mate > 0 ? 10000 : -10000;
-  } else {
-    afterCp = after.cp ?? 0;
-  }
-
   // Perda de avaliação na perspectiva do jogador
   const loss = beforePlayer - afterPlayer;
 
@@ -356,7 +427,7 @@ export function classifyMove(
 /**
  * Converte uma avaliação da perspectiva das brancas para a perspectiva do jogador.
  */
-function toPlayerPerspective(
+export function toPlayerPerspective(
   evaluation: { cp: number | null; mate: number | null },
   sideToMove: 'w' | 'b',
 ): number {
@@ -371,8 +442,43 @@ function toPlayerPerspective(
 /**
  * Computa o resumo da análise: contagem de imprecisões, erros, erros graves
  * e acurácia por lado.
+ *
+ * FÓRMULA DE PRECISÃO (documentada):
+ *
+ * A precisão de cada jogador é a média da "acurácia por lance", onde a
+ * acurácia de um lance mede quanto da "porcentagem de vitória" (win%) o
+ * jogador manteve após jogar.
+ *
+ *   winPercent(cp) = 100 / (1 + exp(-0.00368208 * cp))
+ *
+ * onde cp é a avaliação na perspectiva do jogador (centipeões).  Esta
+ * transformação logística é a mesma usada pelo Lichess (publicamente
+ * documentada — ver github.com/lichess-org/lila, módulo de análise).
+ * A constante 0.00368208 vem do artigo original do Lichess.
+ *
+ * Para cada lance:
+ *   wpBefore = winPercent(eval antes, na perspectiva do jogador)
+ *   wpAfter  = winPercent(eval depois, na perspectiva do jogador)
+ *   moveAccuracy = 100 - max(0, wpBefore - wpAfter)
+ *
+ * A acurácia geral do jogador = média das moveAccuracy de todos os seus
+ * lances.  Lances que melhoram a posição (wpAfter > wpBefore) contam como
+ * 100%.  Lances que pioram reduzem proporcionalmente à queda de win%.
+ *
+ * Antes desta correção, a fórmula era `100 - avgLoss * 0.1` usando valores
+ * FIXOS por classificação (best=0, blunder=300).  Isso comprimia quase todos
+ * os resultados para perto de 100% porque a maioria dos lances é "best"
+ * (perda 0) e o fator 0.1 é muito pequeno.  A nova fórmula dá:
+ *   loss 0cp   → accuracy 100%
+ *   loss 100cp → accuracy ~91%
+ *   loss 300cp → accuracy ~73%
+ *   loss 500cp → accuracy ~58%
+ *
+ * NÃO é a fórmula do Chess.com (que não é pública).  É compatível com a
+ * fórmula pública do Lichess em estrutura, mas pode diferir em detalhes
+ * (profundidade do motor, multiPV, avaliação de referência).
  */
-function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
+export function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
   let best = 0;
   let excellent = 0;
   let good = 0;
@@ -380,9 +486,9 @@ function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
   let mistakes = 0;
   let blunders = 0;
 
-  let whiteTotalLoss = 0;
+  let whiteAccuracySum = 0;
   let whiteMoveCount = 0;
-  let blackTotalLoss = 0;
+  let blackAccuracySum = 0;
   let blackMoveCount = 0;
 
   for (const pos of positions) {
@@ -396,22 +502,34 @@ function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
     else if (pos.classification === 'blunder') blunders++;
 
     const side = getSideToMoveFromPly(pos.ply);
-    const loss = getLossAmount(pos.classification);
+    const prevPos = positions.find((p) => p.ply === pos.ply - 1);
+
+    // Avaliações na perspectiva do jogador (centipeões).
+    const beforeCp = evalToPlayerCp(
+      { cp: prevPos?.evalCp ?? null, mate: prevPos?.evalMate ?? null },
+      side,
+    );
+    const afterCp = evalToPlayerCp(
+      { cp: pos.evalCp, mate: pos.evalMate },
+      side,
+    );
+
+    const moveAcc = moveAccuracy(beforeCp, afterCp);
 
     if (side === 'w') {
-      whiteTotalLoss += loss;
+      whiteAccuracySum += moveAcc;
       whiteMoveCount++;
     } else {
-      blackTotalLoss += loss;
+      blackAccuracySum += moveAcc;
       blackMoveCount++;
     }
   }
 
   const accuracyWhite = whiteMoveCount > 0
-    ? Math.max(0, Math.round(100 - (whiteTotalLoss / whiteMoveCount) * 0.1))
+    ? Math.round(whiteAccuracySum / whiteMoveCount)
     : null;
   const accuracyBlack = blackMoveCount > 0
-    ? Math.max(0, Math.round(100 - (blackTotalLoss / blackMoveCount) * 0.1))
+    ? Math.round(blackAccuracySum / blackMoveCount)
     : null;
 
   return {
@@ -428,21 +546,82 @@ function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
   };
 }
 
-function getSideToMoveFromPly(ply: number): 'w' | 'b' {
+/**
+ * Constante da transformação logística usada pelo Lichess para converter
+ * centipeões em porcentagem de vitória.  Fonte: lila-analysis
+ * (github.com/lichess-org/lila, módulo de análise).
+ */
+const WIN_PERCENT_K = 0.00368208;
+
+/**
+ * Converte uma avaliação (centipeões, perspectiva do jogador) em porcentagem
+ * de vitória (0–100).  cp=0 → 50%, cp>0 → >50%, cp<0 → <50%.
+ */
+export function evalToWinPercent(cp: number): number {
+  return 100 / (1 + Math.exp(-WIN_PERCENT_K * cp));
+}
+
+/**
+ * Calcula a acurácia de um lance (0–100) a partir das avaliações antes e
+ * depois, ambas na perspectiva do jogador.  Lances que melhoram a posição
+ * contam como 100%.  Lances que pioram reduzem proporcionalmente à queda
+ * de win%.
+ */
+export function moveAccuracy(beforeCp: number | null, afterCp: number | null): number {
+  if (beforeCp === null || afterCp === null) return 100;
+  const wpBefore = evalToWinPercent(beforeCp);
+  const wpAfter = evalToWinPercent(afterCp);
+  const drop = Math.max(0, wpBefore - wpAfter);
+  return Math.max(0, Math.min(100, 100 - drop));
+}
+
+/**
+ * Converte uma avaliação (cp/mate, perspectiva das brancas) para centipeões
+ * na perspectiva do jogador.  Mate é convertido para ±10000cp.
+ */
+function evalToPlayerCp(
+  e: { cp: number | null; mate: number | null },
+  side: 'w' | 'b',
+): number | null {
+  let cp: number | null;
+  if (e.mate !== null) {
+    cp = e.mate > 0 ? 10000 : -10000;
+  } else {
+    cp = e.cp;
+  }
+  if (cp === null) return null;
+  return side === 'w' ? cp : -cp;
+}
+
+/**
+ * Calcula a perda real de avaliação (centipeões) na perspectiva do
+ * jogador que jogou o lance.  Sempre ≥ 0 (perda negativa = melhorou = 0).
+ * Trata posições de mate convertendo para ±10000cp.
+ */
+export function computeRealLossCp(
+  before: { cp: number | null; mate: number | null },
+  after: { cp: number | null; mate: number | null },
+  side: 'w' | 'b',
+): number | null {
+  const beforeCp = evalToCp(before);
+  const afterCp = evalToCp(after);
+  if (beforeCp === null || afterCp === null) return null;
+  const beforePlayer = side === 'w' ? beforeCp : -beforeCp;
+  const afterPlayer = side === 'w' ? afterCp : -afterCp;
+  return Math.max(0, beforePlayer - afterPlayer);
+}
+
+function evalToCp(e: { cp: number | null; mate: number | null }): number | null {
+  if (e.mate !== null) return e.mate > 0 ? 10000 : -10000;
+  return e.cp ?? null;
+}
+
+export function getSideToMoveFromPly(ply: number): 'w' | 'b' {
   // ply 1 = primeiro lance das brancas, ply 2 = pretas, etc.
   return ply % 2 === 1 ? 'w' : 'b';
 }
 
-function getLossAmount(cls: MoveClassification): number {
-  switch (cls) {
-    case 'best': return 0;
-    case 'excellent': return 0;
-    case 'good': return 10;
-    case 'inaccuracy': return 50;
-    case 'mistake': return 100;
-    case 'blunder': return 300;
-  }
-}
+
 
 /**
  * Formata a avaliação para exibição.
