@@ -575,17 +575,22 @@ function gameAccuracy(positions: PositionAnalysis[], color: 'w' | 'b'): number |
   // Coletar win% de todas as posições COM classificação e avaliação,
   // na perspectiva das brancas (convenção de armazenamento), em ordem de ply.
   // wp0 (posição inicial, 50%) é prependida conforme o Lichess (Cp.initial = 0).
-  const cps: number[] = [];
+  // Coletar (ply, cp) das posições COM classificação e avaliação,
+  // na perspectiva das brancas (convenção de armazenamento), em ordem de ply.
+  const plyCps: { ply: number; cp: number }[] = [];
   for (const pos of positions) {
     if (!pos.classification) continue;
     const cp = evalToCp({ cp: pos.evalCp, mate: pos.evalMate });
     if (cp === null) continue;
-    cps.push(cp);
+    plyCps.push({ ply: pos.ply, cp });
   }
-  if (cps.length === 0) return null;
+  if (plyCps.length === 0) return null;
 
   // win% na perspectiva das BRANCAS, com wp0 = 50% (posição inicial).
-  const allWinPercents = [evalToWinPercent(0), ...cps.map((c) => evalToWinPercent(c))];
+  const allWinPercents = [evalToWinPercent(0), ...plyCps.map((p) => evalToWinPercent(p.cp))];
+  // Plies alinhados com allWinPercents: allWinPercents[0] = posição inicial (ply 0),
+  // allWinPercents[k] = resultado do lance em plyCps[k-1].ply.
+  const allPlies = [0, ...plyCps.map((p) => p.ply)];
 
   // Determinar windowSize = clamp(cps.length / 10, 2, 8).
   const windowSize = Math.max(2, Math.min(8, Math.floor(cps.length / 10)));
@@ -618,16 +623,16 @@ function gameAccuracy(positions: PositionAnalysis[], color: 'w' | 'b'): number |
   //   Lichess: Color.fromWhite((i % 2 == 0) == startColor.white)
   //   startColor = brancas (posição inicial). Então:
   //     i=0 → brancas, i=1 → pretas, i=2 → brancas, ...
-  const startColorWhite = true;
-
   type AccEntry = { accuracy: number; weight: number; color: 'w' | 'b' };
   const entries: AccEntry[] = [];
 
   for (let i = 0; i < allWinPercents.length - 1; i++) {
     const wpPrev = allWinPercents[i];
     const wpNext = allWinPercents[i + 1];
-    const moveColor: 'w' | 'b' =
-      (i % 2 === 0) === startColorWhite ? 'w' : 'b';
+    // Cor que jogou o lance entre wp[i] e wp[i+1]: o lado que tinha a vez
+    // ANTES do lance. allPlies[i+1] é o ply do lance; quem joga nesse ply é
+    // o lado que TEM a vez na posição resultante — o lado oposto jogou.
+    const moveColor: 'w' | 'b' = getSideToMoveFromPly(allPlies[i + 1]);
 
     // win% na perspectiva da cor que jogou: brancas usam direto, pretas invertem.
     const wpBeforePlayer = moveColor === 'w' ? wpPrev : 100 - wpPrev;

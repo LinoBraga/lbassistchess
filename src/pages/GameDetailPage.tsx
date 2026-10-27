@@ -124,6 +124,25 @@ export function GameDetailPage() {
     [positions.length],
   );
 
+  // UCI do último lance jogado para destacar no tabuleiro.
+  // positions[currentPly].move está em notação SAN (do PGN); o tabuleiro
+  // espera UCI. Convertemos via chess.js a partir da posição anterior.
+  // Deve ficar antes de qualquer return antecipado para respeitar as
+  // regras dos Hooks do React (chamada incondicional, mesma ordem sempre).
+  const lastMoveUci = useMemo(() => {
+    if (currentPly === 0) return null;
+    const prevPos = positions[currentPly - 1];
+    const moveSan = positions[currentPly]?.move;
+    if (!moveSan || !prevPos) return null;
+    try {
+      const chess = new Chess(prevPos.fen);
+      const m = chess.move(moveSan);
+      return m ? `${m.from}${m.to}${m.promotion ?? ''}` : null;
+    } catch {
+      return null;
+    }
+  }, [currentPly, positions]);
+
   const handleDelete = async () => {
     if (!gameId) return;
     setDeleting(true);
@@ -159,23 +178,6 @@ export function GameDetailPage() {
   // Dados de análise para a posição atual
   const currentAnalysis: PositionAnalysis | null =
     analysisState.analysis?.positions?.find((p) => p.ply === currentPly) ?? null;
-
-  // UCI do último lance jogado para destacar no tabuleiro.
-  // positions[currentPly].move está em notação SAN (do PGN); o tabuleiro
-  // espera UCI. Convertemos via chess.js a partir da posição anterior.
-  const lastMoveUci = useMemo(() => {
-    if (currentPly === 0) return null;
-    const prevPos = positions[currentPly - 1];
-    const moveSan = positions[currentPly]?.move;
-    if (!moveSan || !prevPos) return null;
-    try {
-      const chess = new Chess(prevPos.fen);
-      const m = chess.move(moveSan);
-      return m ? `${m.from}${m.to}${m.promotion ?? ''}` : null;
-    } catch {
-      return null;
-    }
-  }, [currentPly, positions]);
 
   // Melhor lance sugerido pela análise (UCI), para desenhar seta no tabuleiro.
   // Só mostramos se for diferente do lance realmente jogado.

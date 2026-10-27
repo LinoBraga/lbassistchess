@@ -18,6 +18,11 @@ import {
   type FullAnalysis,
   type MoveClassification,
 } from '@/lib/analysis';
+import {
+  generateExplanations,
+  type MoveExplanation,
+  type GamePhase,
+} from '@/lib/explanations';
 import { Button } from '@/components/ui/Button';
 
 /**
@@ -83,6 +88,18 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
   }, [analysis.positions]);
 
   const criticalMoments = useMemo(() => findCriticalMoments(analysis.positions), [analysis.positions]);
+  const explanations = useMemo(
+    () => generateExplanations(analysis.positions, positions),
+    [analysis.positions, positions],
+  );
+  const detailedExplanations = useMemo(
+    () => explanations.filter((e) => e.isDetailed),
+    [explanations],
+  );
+  const studyPriorities = useMemo(
+    () => buildStudyPriorities(detailedExplanations),
+    [detailedExplanations],
+  );
   const hasAnalyzed = summary.totalMoves > 0;
   const whiteHasData = summary.accuracyWhite !== null;
   const blackHasData = summary.accuracyBlack !== null;
@@ -209,6 +226,66 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
         </div>
       ) : null}
 
+      {/* === Entenda sua partida === */}
+      {hasAnalyzed && (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-content-primary flex items-center gap-2 mb-4">
+            <BookOpen className="h-4 w-4 text-brand-300" />
+            Entenda sua partida
+          </h3>
+          {explanations.length === 0 ? (
+            <p className="text-sm text-content-secondary">Sem lances para explicar nesta partida.</p>
+          ) : (
+            <>
+              {/* Lances com explicação detalhada */}
+              {detailedExplanations.length > 0 && (
+                <div className="space-y-3 mb-4">
+                  {detailedExplanations.map((exp) => (
+                    <ExplanationCard
+                      key={exp.ply}
+                      explanation={exp}
+                      onJump={() => onJumpToPly(exp.ply)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Resumo de todos os lances classificados */}
+              <div className="border-t border-ink-border pt-3">
+                <p className="text-xs font-semibold text-content-secondary mb-2">
+                  Todos os lances analisados
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {explanations.map((exp) => {
+                    const cls = exp.classification ? classificationLabel(exp.classification) : null;
+                    return (
+                      <button
+                        key={exp.ply}
+                        onClick={() => onJumpToPly(exp.ply)}
+                        className={`px-2 py-1 rounded-md text-xs font-mono transition-colors hover:bg-ink-raised ${
+                          cls ? cls.bg : 'bg-ink-border'
+                        }`}
+                        title={exp.whatHappened}
+                      >
+                        <span className="text-content-muted">
+                          {Math.ceil(exp.ply / 2)}{exp.ply % 2 ? '...' : '.'}
+                        </span>{' '}
+                        <span className="text-content-primary">{exp.moveSan}</span>
+                        {cls && (
+                          <span className={`ml-1 ${cls.color}`}>
+                            {cls.label}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* === Diagnóstico e recomendações === */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-content-primary flex items-center gap-2 mb-4">
@@ -293,27 +370,31 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
               </div>
             )}
 
-            {buildRecommendations(userErrors, game, summary).length > 0 && (
+            {studyPriorities.length > 0 && (
               <div className="rounded-xl bg-brand-500/5 border border-brand-500/20 p-3">
                 <div className="flex items-start gap-2">
                   <BookOpen className="h-4 w-4 text-brand-300 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-semibold text-content-primary mb-1">Recomendações de estudo</p>
-                    <ul className="space-y-1">
-                      {buildRecommendations(userErrors, game, summary).map((rec, i) => (
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-content-primary mb-1">
+                      O que estudar a partir desta partida
+                    </p>
+                    <ol className="space-y-1.5">
+                      {studyPriorities.map((rec, i) => (
                         <li key={i} className="text-xs text-content-secondary leading-relaxed flex items-start gap-1.5">
-                          <span className="text-brand-300 shrink-0">•</span>
+                          <span className="font-semibold text-brand-300 shrink-0">{i + 1}.</span>
                           {rec}
                         </li>
                       ))}
-                    </ul>
+                    </ol>
                   </div>
                 </div>
               </div>
             )}
 
             <p className="text-xs text-content-muted mt-3">
-              Diagnóstico baseado nesta partida. Padrões recorrentes requerem análise de múltiplas partidas.
+              Observações baseadas nesta partida. Padrões recorrentes só podem ser
+              identificados com a análise de múltiplas partidas — estas recomendações
+              refletem apenas o que foi observado aqui.
             </p>
           </>
         ) : (
@@ -469,6 +550,147 @@ export function buildRecommendations(
   // Sem fallback genérico: se não há erros para sustentar uma recomendação,
   // não inventamos uma. A UI já mostra "Nenhum erro significativo detectado".
   return recs;
+}
+
+/**
+ * Gera até 3 prioridades de estudo baseadas nas explicações detalhadas.
+ * Ordena por severidade (blunder > mistake > inaccuracy) e por frequência.
+ */
+export function buildStudyPriorities(explanations: MoveExplanation[]): string[] {
+  if (explanations.length === 0) return [];
+
+  const priorities: string[] = [];
+  const blunders = explanations.filter((e) => e.classification === 'blunder');
+  const mistakes = explanations.filter((e) => e.classification === 'mistake');
+  const inaccuracies = explanations.filter((e) => e.classification === 'inaccuracy');
+
+  // Prioridade 1: erros graves (sempre que houver)
+  if (blunders.length > 0) {
+    const phases = blunders.map((e) => phaseLabelPt(e.phase));
+    const phaseStr = phases[0] ?? 'nesta partida';
+    priorities.push(
+      `Erros graves (${blunders.length}) detectados em ${phaseStr}. Revise estas posições e verifique se havia capturas ou ameaças táticas não consideradas.`,
+    );
+  }
+
+  // Prioridade 2: erros (cálculo)
+  if (mistakes.length > 0 && priorities.length < 3) {
+    priorities.push(
+      `Erros de cálculo (${mistakes.length}) identificados. Pratique calcular 2-3 lances de profundidade antes de decidir, verificando capturas e ameaças do oponente.`,
+    );
+  }
+
+  // Prioridade 3: imprecisões (posicional)
+  if (inaccuracies.length > 0 && priorities.length < 3) {
+    priorities.push(
+      `Imprecisões (${inaccuracies.length}) identificadas. Avalie se havia planos posicionais melhores nestas posições, especialmente desenvolvimento e coordenação de peças.`,
+    );
+  }
+
+  return priorities.slice(0, 3);
+}
+
+function phaseLabelPt(phase: GamePhase): string {
+  if (phase === 'opening') return 'abertura';
+  if (phase === 'middlegame') return 'meio-jogo';
+  return 'final';
+}
+
+function ExplanationCard({
+  explanation,
+  onJump,
+}: {
+  explanation: MoveExplanation;
+  onJump: () => void;
+}) {
+  const cls = explanation.classification ? classificationLabel(explanation.classification) : null;
+  const moveNum = Math.ceil(explanation.ply / 2);
+  const dots = explanation.ply % 2 ? '...' : '.';
+  const [showPv, setShowPv] = useState(false);
+
+  return (
+    <div className={`rounded-xl border p-4 ${cls?.bg ?? 'bg-ink-border'}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-mono text-content-muted">{moveNum}{dots}</span>
+          <span className="text-sm font-mono font-semibold text-content-primary">{explanation.moveSan}</span>
+          {cls && (
+            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${cls.color} ${cls.bg}`}>
+              {cls.label}
+            </span>
+          )}
+          <span className="text-[10px] text-content-muted">
+            {phaseLabelPt(explanation.phase)}
+          </span>
+        </div>
+        <button onClick={onJump} className="text-xs text-brand-300 hover:text-brand-200 font-medium shrink-0">
+          Ver posição
+        </button>
+      </div>
+
+      {/* O que aconteceu */}
+      <p className="text-xs text-content-primary leading-relaxed mb-2">
+        {explanation.whatHappened}
+      </p>
+
+      {/* Melhor alternativa */}
+      {explanation.bestMoveSan && (
+        <div className="text-xs text-content-secondary mb-1.5">
+          <span className="text-content-muted">Melhor alternativa: </span>
+          <span className="font-mono font-semibold text-content-primary">{explanation.bestMoveSan}</span>
+        </div>
+      )}
+
+      {/* Por que é melhor */}
+      {explanation.whyBetter && (
+        <p className="text-xs text-content-secondary leading-relaxed mb-2">
+          {explanation.whyBetter}
+        </p>
+      )}
+
+      {/* Como pensar */}
+      {explanation.howToThink && (
+        <p className="text-xs text-content-secondary leading-relaxed mb-2">
+          <span className="text-content-muted font-medium">Como pensar: </span>
+          {explanation.howToThink}
+        </p>
+      )}
+
+      {/* O que estudar */}
+      {explanation.whatToStudy && (
+        <p className="text-xs text-content-secondary leading-relaxed mb-2">
+          <span className="text-content-muted font-medium">O que estudar: </span>
+          {explanation.whatToStudy}
+        </p>
+      )}
+
+      {/* Variante principal expansível */}
+      {explanation.pvSan && explanation.pvSan.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setShowPv((v) => !v)}
+            className="text-[11px] text-brand-300 hover:text-brand-200 font-medium flex items-center gap-1"
+          >
+            {showPv ? 'Ocultar variante' : 'Ver variante principal'}
+            <ChevronRight className={`h-3 w-3 transition-transform ${showPv ? 'rotate-90' : ''}`} />
+          </button>
+          {showPv && (
+            <p className="text-xs font-mono text-content-secondary mt-1.5 leading-relaxed bg-ink/40 rounded p-2">
+              {explanation.pvSan.join(' ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Limitação sinalizada */}
+      {!explanation.bestMoveSan && (
+        <p className="text-[10px] text-content-muted italic mt-1">
+          A análise não identificou uma alternativa melhor para esta posição.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function uciToSanSafe(fen: string, uci: string | null): string {
