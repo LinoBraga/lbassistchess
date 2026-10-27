@@ -443,40 +443,35 @@ export function toPlayerPerspective(
  * Computa o resumo da análise: contagem de imprecisões, erros, erros graves
  * e acurácia por lado.
  *
- * FÓRMULA DE PRECISÃO (documentada):
+ * FÓRMULA DE PRECISÃO (oficial Lichess — AccuracyPercent.scala):
  *
- * A precisão de cada jogador é a média da "acurácia por lance", onde a
- * acurácia de um lance mede quanto da "porcentagem de vitória" (win%) o
- * jogador manteve após jogar.
+ * 1) winPercent(cp) = 100 / (1 + exp(-0.00368208 * cp))   [preservada]
  *
- *   winPercent(cp) = 100 / (1 + exp(-0.00368208 * cp))
+ * 2) Acurácia por lance (fromWinPercents):
+ *      if wpAfter >= wpBefore: 100
+ *      else:
+ *        winDiff   = wpBefore - wpAfter
+ *        raw       = 103.1668 * exp(-0.04354 * winDiff) - 3.1669
+ *        accuracy  = clamp(raw + 1, 0, 100)   // +1 = bônus de incerteza
  *
- * onde cp é a avaliação na perspectiva do jogador (centipeões).  Esta
- * transformação logística é a mesma usada pelo Lichess (publicamente
- * documentada — ver github.com/lichess-org/lila, módulo de análise).
- * A constante 0.00368208 vem do artigo original do Lichess.
+ * 3) Acurácia da partida (gameAccuracy):
+ *      - Lista contínua de win% (wp0 = 50% inicial, wp1, wp2, ...)
+ *      - windowSize = clamp(cps.length / 10, 2, 8)
+ *      - Para cada janela deslizante de tamanho windowSize, peso =
+ *          clamp(stdev(janela), 0.5, 12)
+ *      - Para cada par consecutivo (wp[i], wp[i+1]):
+ *          color    = (i % 2 == 0) == startColorIsWhite ? white : black
+ *          accuracy = fromWinPercents(perspectiva da color, wp[i], wp[i+1])
+ *          peso     = peso da janela correspondente
+ *      - Por cor: mean( (weightedMean(acurácias, pesos), harmonicMean(acurácias) )
+ *      - Acurácia da cor = (weightedMean + harmonicMean) / 2
  *
- * Para cada lance:
- *   wpBefore = winPercent(eval antes, na perspectiva do jogador)
- *   wpAfter  = winPercent(eval depois, na perspectiva do jogador)
- *   moveAccuracy = 100 - max(0, wpBefore - wpAfter)
+ * A agregação NÃO é média aritmética simples. Combina média ponderada
+ * (por volatilidade da posição) com média harmônica, dando mais peso a
+ * lances em posições voláteis e penalizando mais lances muito ruins.
  *
- * A acurácia geral do jogador = média das moveAccuracy de todos os seus
- * lances.  Lances que melhoram a posição (wpAfter > wpBefore) contam como
- * 100%.  Lances que pioram reduzem proporcionalmente à queda de win%.
- *
- * Antes desta correção, a fórmula era `100 - avgLoss * 0.1` usando valores
- * FIXOS por classificação (best=0, blunder=300).  Isso comprimia quase todos
- * os resultados para perto de 100% porque a maioria dos lances é "best"
- * (perda 0) e o fator 0.1 é muito pequeno.  A nova fórmula dá:
- *   loss 0cp   → accuracy 100%
- *   loss 100cp → accuracy ~91%
- *   loss 300cp → accuracy ~73%
- *   loss 500cp → accuracy ~58%
- *
- * NÃO é a fórmula do Chess.com (que não é pública).  É compatível com a
- * fórmula pública do Lichess em estrutura, mas pode diferir em detalhes
- * (profundidade do motor, multiPV, avaliação de referência).
+ * Referência: github.com/lichess-org/lila, modules/analyse/src/main/AccuracyPercent.scala
+ * Documentação pública: https://lichess.org/page/accuracy
  */
 export function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
   let best = 0;
@@ -486,51 +481,20 @@ export function computeSummary(positions: PositionAnalysis[]): AnalysisSummary {
   let mistakes = 0;
   let blunders = 0;
 
-  let whiteAccuracySum = 0;
-  let whiteMoveCount = 0;
-  let blackAccuracySum = 0;
-  let blackMoveCount = 0;
-
+  // Contagens de classificação (preservado).
   for (const pos of positions) {
     if (!pos.classification) continue;
-
     if (pos.classification === 'best') best++;
     else if (pos.classification === 'excellent') excellent++;
     else if (pos.classification === 'good') good++;
     else if (pos.classification === 'inaccuracy') inaccuracies++;
     else if (pos.classification === 'mistake') mistakes++;
     else if (pos.classification === 'blunder') blunders++;
-
-    const side = getSideToMoveFromPly(pos.ply);
-    const prevPos = positions.find((p) => p.ply === pos.ply - 1);
-
-    // Avaliações na perspectiva do jogador (centipeões).
-    const beforeCp = evalToPlayerCp(
-      { cp: prevPos?.evalCp ?? null, mate: prevPos?.evalMate ?? null },
-      side,
-    );
-    const afterCp = evalToPlayerCp(
-      { cp: pos.evalCp, mate: pos.evalMate },
-      side,
-    );
-
-    const moveAcc = moveAccuracy(beforeCp, afterCp);
-
-    if (side === 'w') {
-      whiteAccuracySum += moveAcc;
-      whiteMoveCount++;
-    } else {
-      blackAccuracySum += moveAcc;
-      blackMoveCount++;
-    }
   }
 
-  const accuracyWhite = whiteMoveCount > 0
-    ? Math.round(whiteAccuracySum / whiteMoveCount)
-    : null;
-  const accuracyBlack = blackMoveCount > 0
-    ? Math.round(blackAccuracySum / blackMoveCount)
-    : null;
+  // Acurácia da partida via algoritmo oficial do Lichess.
+  const accuracyWhite = gameAccuracy(positions, 'w');
+  const accuracyBlack = gameAccuracy(positions, 'b');
 
   return {
     best,
@@ -563,16 +527,168 @@ export function evalToWinPercent(cp: number): number {
 
 /**
  * Calcula a acurácia de um lance (0–100) a partir das avaliações antes e
- * depois, ambas na perspectiva do jogador.  Lances que melhoram a posição
- * contam como 100%.  Lances que pioram reduzem proporcionalmente à queda
- * de win%.
+ * depois, ambas na perspectiva do jogador (centipeões).  Implementa a
+ * fórmula pública oficial do Lichess (AccuracyPercent.fromWinPercents).
+ *
+ * Referência: github.com/lichess-org/lila, AccuracyPercent.scala.
+ *
+ *   if wpAfter >= wpBefore: 100
+ *   else:
+ *     winDiff  = wpBefore - wpAfter
+ *     raw      = 103.1668 * exp(-0.04354 * winDiff) - 3.1669
+ *     accuracy = clamp(raw + 1, 0, 100)   // +1 = bônus de incerteza
  */
 export function moveAccuracy(beforeCp: number | null, afterCp: number | null): number {
   if (beforeCp === null || afterCp === null) return 100;
   const wpBefore = evalToWinPercent(beforeCp);
   const wpAfter = evalToWinPercent(afterCp);
-  const drop = Math.max(0, wpBefore - wpAfter);
-  return Math.max(0, Math.min(100, 100 - drop));
+  return accuracyFromWinPercents(wpBefore, wpAfter);
+}
+
+/**
+ * Acurácia por lance a partir de win% antes/depois (perspectiva do jogador).
+ * Reproduz exatamente AccuracyPercent.fromWinPercents do Lichess:
+ *   - se não houve perda (wpAfter >= wpBefore): 100
+ *   - senão: 103.1668 * exp(-0.04354 * winDiff) - 3.1669, +1 de bônus,
+ *     clampado em [0, 100].
+ */
+export function accuracyFromWinPercents(wpBefore: number, wpAfter: number): number {
+  if (wpAfter >= wpBefore) return 100;
+  const winDiff = wpBefore - wpAfter;
+  const raw = 103.1668100711649 * Math.exp(-0.04354415386753951 * winDiff) + -3.166924740191411;
+  const withBonus = raw + 1; // bônus de incerteza (análise imperfeita)
+  return Math.max(0, Math.min(100, withBonus));
+}
+
+/**
+ * Acurácia da partida por cor, usando o algoritmo oficial do Lichess
+ * (AccuracyPercent.gameAccuracy): janelas deslizantes para pesos de
+ * volatilidade, depois média de (média ponderada + média harmônica).
+ *
+ * As posições precisam ter evalCp/evalMate na perspectiva das brancas
+ * (convenção do LB Assist Chess) e plies consecutivos a partir de 1.
+ * A posição inicial (ply 0, eval 0cp) é inserida como wp0 = 50%.
+ *
+ * Retorna null se a cor não tiver lances analisados.
+ */
+function gameAccuracy(positions: PositionAnalysis[], color: 'w' | 'b'): number | null {
+  // Coletar win% de todas as posições COM classificação e avaliação,
+  // na perspectiva das brancas (convenção de armazenamento), em ordem de ply.
+  // wp0 (posição inicial, 50%) é prependida conforme o Lichess (Cp.initial = 0).
+  const cps: number[] = [];
+  for (const pos of positions) {
+    if (!pos.classification) continue;
+    const cp = evalToCp({ cp: pos.evalCp, mate: pos.evalMate });
+    if (cp === null) continue;
+    cps.push(cp);
+  }
+  if (cps.length === 0) return null;
+
+  // win% na perspectiva das BRANCAS, com wp0 = 50% (posição inicial).
+  const allWinPercents = [evalToWinPercent(0), ...cps.map((c) => evalToWinPercent(c))];
+
+  // Determinar windowSize = clamp(cps.length / 10, 2, 8).
+  const windowSize = Math.max(2, Math.min(8, Math.floor(cps.length / 10)));
+
+  // Construir janelas conforme o Lichess:
+  //   List.fill(min(windowSize, n) - 2)(allWinPercents.take(windowSize))
+  //     ::: allWinPercents.sliding(windowSize)
+  const n = allWinPercents.length;
+  const windows: number[][] = [];
+  const fillCount = Math.max(0, Math.min(windowSize, n) - 2);
+  for (let i = 0; i < fillCount; i++) {
+    windows.push(allWinPercents.slice(0, windowSize));
+  }
+  for (let i = 0; i + windowSize <= n; i++) {
+    windows.push(allWinPercents.slice(i, i + windowSize));
+  }
+
+  // Peso de cada janela = clamp(stdev(janela), 0.5, 12).
+  const weights = windows.map((w) => {
+    const sd = standardDeviation(w);
+    return Math.max(0.5, Math.min(12, sd));
+  });
+
+  // Para cada par consecutivo (wp[i], wp[i+1]), calcular acurácia do lance
+  // na perspectiva da cor que jogou, com o peso da janela correspondente.
+  // O índice i do par alinha-se com o índice da janela: pares e janelas são
+  // ambos derivados da mesma lista allWinPercents, em ordem.
+  //
+  // color do lance i (0-indexed entre os pares):
+  //   Lichess: Color.fromWhite((i % 2 == 0) == startColor.white)
+  //   startColor = brancas (posição inicial). Então:
+  //     i=0 → brancas, i=1 → pretas, i=2 → brancas, ...
+  const startColorWhite = true;
+
+  type AccEntry = { accuracy: number; weight: number; color: 'w' | 'b' };
+  const entries: AccEntry[] = [];
+
+  for (let i = 0; i < allWinPercents.length - 1; i++) {
+    const wpPrev = allWinPercents[i];
+    const wpNext = allWinPercents[i + 1];
+    const moveColor: 'w' | 'b' =
+      (i % 2 === 0) === startColorWhite ? 'w' : 'b';
+
+    // win% na perspectiva da cor que jogou: brancas usam direto, pretas invertem.
+    const wpBeforePlayer = moveColor === 'w' ? wpPrev : 100 - wpPrev;
+    const wpAfterPlayer = moveColor === 'w' ? wpNext : 100 - wpNext;
+
+    const accuracy = accuracyFromWinPercents(wpBeforePlayer, wpAfterPlayer);
+    // Peso: janela correspondente ao índice i. O Lichess zips sliding(2)
+    // com weights; se houver menos pesos que pares (pre-fill), usamos o
+    // último peso disponível (janela mais próxima).
+    const weight = weights[i] ?? weights[weights.length - 1] ?? 1;
+
+    entries.push({ accuracy, weight, color: moveColor });
+  }
+
+  const colorEntries = entries.filter((e) => e.color === color);
+  if (colorEntries.length === 0) return null;
+
+  const weighted = weightedMean(
+    colorEntries.map((e) => e.accuracy),
+    colorEntries.map((e) => e.weight),
+  );
+  const harmonic = harmonicMean(colorEntries.map((e) => e.accuracy));
+
+  const game = (weighted + harmonic) / 2;
+  return Math.round(game);
+}
+
+/**
+ * Desvio-padrão amostral (n-1) de uma lista de números.  Retorna 0 para
+ * listas vazias ou de tamanho 1.
+ */
+function standardDeviation(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const variance = xs.reduce((acc, x) => acc + (x - mean) ** 2, 0) / (xs.length - 1);
+  return Math.sqrt(variance);
+}
+
+/**
+ * Média ponderada: sum(values[i] * weights[i]) / sum(weights).
+ */
+function weightedMean(values: number[], weights: number[]): number {
+  if (values.length === 0) return 0;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < values.length; i++) {
+    num += values[i] * weights[i];
+    den += weights[i];
+  }
+  return den === 0 ? 0 : num / den;
+}
+
+/**
+ * Média harmônica: n / sum(1/x).  Valores <= 0 são tratados como
+ * desprezíveis (Lichess: orZero).  Retorna 0 se não houver valores válidos.
+ */
+function harmonicMean(values: number[]): number {
+  const valid = values.filter((v) => v > 0);
+  if (valid.length === 0) return 0;
+  const sumInv = valid.reduce((acc, v) => acc + 1 / v, 0);
+  return valid.length / sumInv;
 }
 
 /**

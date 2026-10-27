@@ -8,7 +8,7 @@ interface EvalGraphProps {
   totalPlies: number;
 }
 
-const GRAPH_HEIGHT = 120;
+const GRAPH_HEIGHT = 140;
 const MAX_CP = 1000;
 
 /**
@@ -78,6 +78,8 @@ export function EvalGraph({ positions, currentPly, onSelectPly, totalPlies }: Ev
     [points],
   );
 
+  const midY = GRAPH_HEIGHT / 2;
+
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between mb-2">
@@ -101,38 +103,56 @@ export function EvalGraph({ positions, currentPly, onSelectPly, totalPlies }: Ev
         <svg
           viewBox={`0 0 100 ${GRAPH_HEIGHT}`}
           preserveAspectRatio="none"
-          className="w-full"
+          className="w-full cursor-pointer"
           style={{ height: `${GRAPH_HEIGHT}px` }}
         >
           <defs>
-            <linearGradient id="evalArea" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="rgb(34 197 94)" stopOpacity="0.18" />
-              <stop offset="50%" stopColor="rgb(100 100 110)" stopOpacity="0.04" />
-              <stop offset="100%" stopColor="rgb(239 68 68)" stopOpacity="0.18" />
+            <linearGradient id="evalAreaWhite" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgb(34 197 94)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="rgb(34 197 94)" stopOpacity="0.03" />
+            </linearGradient>
+            <linearGradient id="evalAreaBlack" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgb(239 68 68)" stopOpacity="0.03" />
+              <stop offset="100%" stopColor="rgb(239 68 68)" stopOpacity="0.22" />
             </linearGradient>
           </defs>
+
+          {/* White advantage fill (above mid) */}
+          {areaD && (
+            <>
+              <clipPath id="clipWhite">
+                <rect x="0" y="0" width="100" height={midY} />
+              </clipPath>
+              <clipPath id="clipBlack">
+                <rect x="0" y={midY} width="100" height={midY} />
+              </clipPath>
+              <path d={areaD} fill="url(#evalAreaWhite)" clipPath="url(#clipWhite)" />
+              <path d={areaD} fill="url(#evalAreaBlack)" clipPath="url(#clipBlack)" />
+            </>
+          )}
 
           {/* Zero line — equilíbrio */}
           <line
             x1="0"
-            y1={GRAPH_HEIGHT / 2}
+            y1={midY}
             x2="100"
-            y2={GRAPH_HEIGHT / 2}
-            stroke="currentColor"
-            strokeWidth="0.4"
-            strokeDasharray="1.5 1.5"
-            className="text-content-muted"
+            y2={midY}
+            stroke="rgb(148 163 184)"
+            strokeWidth="0.5"
+            strokeDasharray="2 1.5"
+            opacity="0.6"
           />
+          <text x="1" y={midY - 1.5} fill="rgb(148 163 184)" fontSize="3" opacity="0.7">
+            0.0
+          </text>
 
-          {areaD && <path d={areaD} fill="url(#evalArea)" />}
-
-          {/* Continuous line — neutral color */}
+          {/* Continuous eval line */}
           {pathD && (
             <path
               d={pathD}
               fill="none"
               stroke="rgb(148 163 184)"
-              strokeWidth="0.8"
+              strokeWidth="0.9"
               strokeLinejoin="round"
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
@@ -145,7 +165,7 @@ export function EvalGraph({ positions, currentPly, onSelectPly, totalPlies }: Ev
               key={`err-${p.ply}`}
               cx={p.x}
               cy={p.y}
-              r={1.0}
+              r={1.1}
               fill="none"
               stroke={
                 p.classification === 'blunder'
@@ -154,10 +174,24 @@ export function EvalGraph({ positions, currentPly, onSelectPly, totalPlies }: Ev
                     ? 'rgb(249 115 22)'
                     : 'rgb(234 179 8)'
               }
-              strokeWidth="0.8"
+              strokeWidth="0.9"
               vectorEffect="non-scaling-stroke"
             />
           ))}
+
+          {/* Current ply vertical marker */}
+          {points.length > 0 && (
+            <line
+              x1={currentPly * (totalPlies > 0 ? 100 / totalPlies : 0)}
+              y1="0"
+              x2={currentPly * (totalPlies > 0 ? 100 / totalPlies : 0)}
+              y2={GRAPH_HEIGHT}
+              stroke="rgb(34 211 238)"
+              strokeWidth="0.4"
+              opacity="0.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
 
           {/* Clickable points */}
           {points.map((p) => {
@@ -167,10 +201,10 @@ export function EvalGraph({ positions, currentPly, onSelectPly, totalPlies }: Ev
                 key={p.ply}
                 cx={p.x}
                 cy={p.y}
-                r={isCurrent ? 1.6 : 0.5}
+                r={isCurrent ? 1.8 : 0.6}
                 fill={isCurrent ? 'rgb(34 211 238)' : 'rgb(148 163 184)'}
                 stroke={isCurrent ? 'rgb(255 255 255)' : 'none'}
-                strokeWidth="0.4"
+                strokeWidth="0.5"
                 vectorEffect="non-scaling-stroke"
                 className="cursor-pointer"
                 onClick={() => onSelectPly(p.ply)}

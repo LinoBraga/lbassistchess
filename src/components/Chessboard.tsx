@@ -4,6 +4,10 @@ import { Chess } from 'chess.js';
 interface ChessboardProps {
   fen: string;
   size?: number;
+  /** UCI do último lance jogado (ex: "e2e4"), para destacar casas de origem/destino. */
+  lastMove?: string | null;
+  /** UCI do melhor lance sugerido pela análise, para desenhar uma seta. */
+  bestMove?: string | null;
 }
 
 const PIECE_UNICODE: Record<string, string> = {
@@ -14,13 +18,27 @@ const PIECE_UNICODE: Record<string, string> = {
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
 
-export function Chessboard({ fen, size = 480 }: ChessboardProps) {
+const LIGHT_SQ = '#ebecd0';
+const DARK_SQ = '#7fa550';
+const LAST_MOVE_LIGHT = '#f5f58a';
+const LAST_MOVE_DARK = '#c7d154';
+
+export function Chessboard({ fen, size = 480, lastMove = null, bestMove = null }: ChessboardProps) {
   const board = useMemo(() => parseFen(fen), [fen]);
-  const sqSize = size / 8;
+
+  const lastMoveSquares = useMemo(() => {
+    if (!lastMove || lastMove.length < 4) return null;
+    return { from: lastMove.slice(0, 2), to: lastMove.slice(2, 4) };
+  }, [lastMove]);
+
+  const arrow = useMemo(() => {
+    if (!bestMove || bestMove.length < 4) return null;
+    return { from: bestMove.slice(0, 2), to: bestMove.slice(2, 4) };
+  }, [bestMove]);
 
   return (
     <div
-      className="relative w-full select-none rounded-xl overflow-hidden border border-ink-border"
+      className="relative w-full select-none rounded-xl overflow-hidden border border-ink-border shadow-lg"
       style={{ maxWidth: size, aspectRatio: '1 / 1' }}
     >
       <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
@@ -29,27 +47,47 @@ export function Chessboard({ fen, size = 480 }: ChessboardProps) {
             const isLight = (rowIdx + colIdx) % 2 === 0;
             const file = FILES[colIdx];
             const rank = RANKS[rowIdx];
+            const squareName = `${file}${rank}`;
+
+            let bg = isLight ? LIGHT_SQ : DARK_SQ;
+            if (lastMoveSquares) {
+              if (squareName === lastMoveSquares.from || squareName === lastMoveSquares.to) {
+                bg = isLight ? LAST_MOVE_LIGHT : LAST_MOVE_DARK;
+              }
+            }
+
             return (
               <div
                 key={`${rowIdx}-${colIdx}`}
-                className={`flex items-center justify-center ${isLight ? 'bg-[#3a4358]' : 'bg-[#1C2434]'}`}
-                style={{ fontSize: sqSize * 0.62 }}
+                className="flex items-center justify-center relative"
+                style={{ backgroundColor: bg, fontSize: `clamp(28px, ${(size / 8) * 0.62}px, 60px)` }}
               >
                 {piece && (
                   <span
-                    className={`leading-none ${piece[0] === 'w' ? 'text-content-primary' : 'text-[#0B0F19]'}`}
-                    style={{ textShadow: piece[0] === 'w' ? '0 1px 2px rgba(0,0,0,0.5)' : '0 1px 2px rgba(255,255,255,0.15)' }}
+                    className={`leading-none relative z-10 ${piece[0] === 'w' ? 'text-white' : 'text-[#1a1a1a]'}`}
+                    style={{
+                      textShadow:
+                        piece[0] === 'w'
+                          ? '0 1px 3px rgba(0,0,0,0.4), 0 0 1px rgba(0,0,0,0.2)'
+                          : '0 1px 2px rgba(255,255,255,0.15)',
+                    }}
                   >
                     {PIECE_UNICODE[piece]}
                   </span>
                 )}
                 {colIdx === 0 && (
-                  <span className="absolute left-1 top-0.5 text-[9px] font-medium text-content-muted/60">
+                  <span
+                    className="absolute left-0.5 top-0 text-[9px] sm:text-[10px] font-semibold pointer-events-none"
+                    style={{ color: isLight ? '#7fa550' : '#ebecd0' }}
+                  >
                     {rank}
                   </span>
                 )}
                 {rowIdx === 7 && (
-                  <span className="absolute right-1 bottom-0 text-[9px] font-medium text-content-muted/60">
+                  <span
+                    className="absolute right-0.5 bottom-0 text-[9px] sm:text-[10px] font-semibold pointer-events-none"
+                    style={{ color: isLight ? '#7fa550' : '#ebecd0' }}
+                  >
                     {file}
                   </span>
                 )}
@@ -58,7 +96,62 @@ export function Chessboard({ fen, size = 480 }: ChessboardProps) {
           }),
         )}
       </div>
+
+      {arrow && (
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none z-20"
+          viewBox="0 0 8 8"
+          preserveAspectRatio="none"
+        >
+          <BestMoveArrow from={arrow.from} to={arrow.to} />
+        </svg>
+      )}
     </div>
+  );
+}
+
+function BestMoveArrow({ from, to }: { from: string; to: string }) {
+  const fromCol = from.charCodeAt(0) - 97;
+  const fromRow = 8 - parseInt(from[1], 10);
+  const toCol = to.charCodeAt(0) - 97;
+  const toRow = 8 - parseInt(to[1], 10);
+
+  if (fromCol === toCol && fromRow === toRow) return null;
+
+  const x1 = fromCol + 0.5;
+  const y1 = fromRow + 0.5;
+  const x2 = toCol + 0.5;
+  const y2 = toRow + 0.5;
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return null;
+
+  const ux = dx / len;
+  const uy = dy / len;
+  const headLen = 0.32;
+  const headWidth = 0.16;
+
+  const shaftEndX = x2 - ux * headLen;
+  const shaftEndY = y2 - uy * headLen;
+
+  const perpX = -uy;
+  const perpY = ux;
+
+  const p1x = shaftEndX + perpX * headWidth;
+  const p1y = shaftEndY + perpY * headWidth;
+  const p2x = shaftEndX - perpX * headWidth;
+  const p2y = shaftEndY - perpY * headWidth;
+
+  const linePath = `M ${x1} ${y1} L ${shaftEndX} ${shaftEndY}`;
+  const headPath = `M ${x2} ${y2} L ${p1x} ${p1y} L ${p2x} ${p2y} Z`;
+
+  return (
+    <>
+      <path d={linePath} stroke="rgba(34,211,238,0.85)" strokeWidth="0.14" strokeLinecap="round" />
+      <path d={headPath} fill="rgba(34,211,238,0.85)" />
+    </>
   );
 }
 

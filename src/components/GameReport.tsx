@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  TrendingUp,
   Target,
   AlertTriangle,
   Lightbulb,
   ChevronRight,
-  BarChart3,
   Crosshair,
   BookOpen,
   Trophy,
@@ -29,8 +27,10 @@ import { Button } from '@/components/ui/Button';
  *   evalMate > 0 → brancas dão mate; < 0 → pretas dão mate
  * - A perda que classifica um lance é calculada na perspectiva do JOGADOR
  *   que o realizou (classifyMove inverte o sinal quando pretas jogam).
- * - Precisão é uma ESTIMATIVA PRÓPRIA do LB Assist Chess, baseada na perda
- *   média de avaliação por lance. Não é a fórmula do Chess.com nem do Lichess.
+ * - Precisão segue a fórmula pública oficial do Lichess (AccuracyPercent):
+ *   acurácia por lance = 103.1668*exp(-0.04354*winDiff) - 3.1669 (+1 bônus),
+ *   e acurácia da partida combina média ponderada por volatilidade e
+ *   média harmônica por cor.  Referência: lichess.org/page/accuracy
  */
 
 export interface GameReportProps {
@@ -89,60 +89,57 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
 
   return (
     <div className="space-y-4">
-      {/* === Resumo === */}
+      {/* === Resumo da partida === */}
       <div className="card-raised p-5">
-        <h2 className="text-base font-bold text-content-primary flex items-center gap-2 mb-3">
-          <TrendingUp className="h-4.5 w-4.5 text-brand-300" />
-          Resumo da partida
-        </h2>
         {hasAnalyzed ? (
           <>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <ReportStat label="Lances analisados" value={summary.totalMoves} />
-              <ReportStat label="Profundidade máx." value={maxDepth > 0 ? `d${maxDepth}` : '—'} />
-              <ReportStat
-                label="Sua precisão"
-                value={userAccuracy !== null ? `${userAccuracy}%` : 'Dados insuficientes'}
-                color="text-brand-300"
-              />
-              <ReportStat
-                label="Total de erros"
-                value={summary.inaccuracies + summary.mistakes + summary.blunders}
-                color="text-warning-300"
-              />
+            {/* Header: jogadores, resultado, metadados */}
+            <div className="flex flex-col gap-3 mb-4 pb-4 border-b border-ink-border">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="font-semibold text-content-primary">
+                    {game.white_player || 'Brancas'}
+                  </span>
+                  <span className="text-content-muted text-xs">vs</span>
+                  <span className="font-semibold text-content-primary">
+                    {game.black_player || 'Pretas'}
+                  </span>
+                  {game.result && (
+                    <span className="text-xs text-content-secondary font-mono ml-1">
+                      {game.result}
+                    </span>
+                  )}
+                </div>
+                {userColor && (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-300">
+                    Você jogou de {userColor === 'white' ? 'brancas' : 'pretas'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-content-muted flex-wrap">
+                {game.played_at && (
+                  <span>{formatDate(game.played_at)}</span>
+                )}
+                {game.time_control && (
+                  <>
+                    <span>·</span>
+                    <span>{game.time_control}</span>
+                  </>
+                )}
+                {game.opening_name && (
+                  <>
+                    <span>·</span>
+                    <span className="truncate max-w-[180px]">{game.opening_name}</span>
+                  </>
+                )}
+                {game.opening_eco && (
+                  <span className="chip text-[10px]">{game.opening_eco}</span>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-content-secondary mt-3 leading-relaxed">
-              {buildTextSummary(game, summary, errors, userColor)}
-            </p>
-          </>
-        ) : (
-          <div className="flex items-start gap-2 text-xs text-content-secondary">
-            <Info className="h-4 w-4 text-content-muted shrink-0 mt-0.5" />
-            <p>
-              Nenhum lance analisado nesta partida. Inicie uma análise para ver o resumo,
-              classificações e precisão estimada.
-            </p>
-          </div>
-        )}
-      </div>
 
-      {/* === Classificação e precisão === */}
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold text-content-primary flex items-center gap-2 mb-4">
-          <BarChart3 className="h-4 w-4 text-brand-300" />
-          Classificação dos lances
-        </h3>
-        {hasAnalyzed ? (
-          <>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-              <ClassificationStat label="Melhores" value={summary.best} cls="best" />
-              <ClassificationStat label="Excelentes" value={summary.excellent} cls="excellent" />
-              <ClassificationStat label="Bons" value={summary.good} cls="good" />
-              <ClassificationStat label="Imprecisões" value={summary.inaccuracies} cls="inaccuracy" />
-              <ClassificationStat label="Erros" value={summary.mistakes} cls="mistake" />
-              <ClassificationStat label="Erros graves" value={summary.blunders} cls="blunder" />
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3 mt-4">
+            {/* Precisão por jogador + stats de análise */}
+            <div className="grid sm:grid-cols-2 gap-4 mb-4">
               <AccuracyBar
                 label={game.white_player || 'Brancas'}
                 accuracy={summary.accuracyWhite}
@@ -156,14 +153,31 @@ export function GameReport({ analysis, game, positions, onJumpToPly, onCreateExe
                 icon={<Shield className="h-3.5 w-3.5 text-cyan-400" />}
               />
             </div>
-            <p className="text-xs text-content-muted mt-3 leading-relaxed">
-              Precisão estimada pelo LB Assist Chess — calculada a partir da perda
-              média de avaliação por lance, na perspectiva de cada jogador. Não é
-              a métrica oficial do Chess.com ou do Lichess.
-            </p>
+
+            {/* Classificação dos lances */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+              <ClassificationStat label="Melhores" value={summary.best} cls="best" />
+              <ClassificationStat label="Excelentes" value={summary.excellent} cls="excellent" />
+              <ClassificationStat label="Bons" value={summary.good} cls="good" />
+              <ClassificationStat label="Imprecisões" value={summary.inaccuracies} cls="inaccuracy" />
+              <ClassificationStat label="Erros" value={summary.mistakes} cls="mistake" />
+              <ClassificationStat label="Erros graves" value={summary.blunders} cls="blunder" />
+            </div>
+
+            {/* Stats finais */}
+            <div className="flex items-center justify-between gap-4 pt-3 border-t border-ink-border text-xs text-content-muted">
+              <span>{summary.totalMoves} lances analisados</span>
+              <span>Profundidade máx. {maxDepth > 0 ? `d${maxDepth}` : '—'}</span>
+            </div>
           </>
         ) : (
-          <p className="text-sm text-content-secondary">Dados insuficientes para classificar lances.</p>
+          <div className="flex items-start gap-2 text-xs text-content-secondary">
+            <Info className="h-4 w-4 text-content-muted shrink-0 mt-0.5" />
+            <p>
+              Nenhum lance analisado nesta partida. Inicie uma análise para ver o resumo,
+              classificações e precisão.
+            </p>
+          </div>
         )}
       </div>
 
@@ -476,15 +490,6 @@ function uciToSanSafe(fen: string, uci: string | null): string {
 
 // === Sub-components ===
 
-function ReportStat({ label, value, color }: { label: string; value: number | string; color?: string }) {
-  return (
-    <div className="text-center">
-      <p className={`text-xl font-bold ${color || 'text-content-primary'}`}>{value}</p>
-      <p className="text-xs text-content-secondary mt-0.5">{label}</p>
-    </div>
-  );
-}
-
 function ClassificationStat({ label, value, cls }: { label: string; value: number; cls: MoveClassification }) {
   const c = classificationLabel(cls);
   return (
@@ -495,6 +500,15 @@ function ClassificationStat({ label, value, cls }: { label: string; value: numbe
       <p className="text-[10px] text-content-secondary">{label}</p>
     </div>
   );
+}
+
+function formatDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch {
+    return iso;
+  }
 }
 
 function AccuracyBar({

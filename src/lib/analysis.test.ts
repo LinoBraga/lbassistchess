@@ -8,6 +8,7 @@ import {
   computeRealLossCp,
   evalToWinPercent,
   moveAccuracy,
+  accuracyFromWinPercents,
   isLegalMove,
   formatEval,
   evalBarColor,
@@ -402,31 +403,31 @@ describe('moveAccuracy', () => {
     expect(moveAccuracy(-100, 50)).toBe(100);
   });
 
-  it('perda de 100cp → ~91%', () => {
+  it('perda de 100cp (wp 53.7→50, winDiff ~3.7) → ~85.5% (fórmula Lichess)', () => {
     const acc = moveAccuracy(100, 0);
-    // wpBefore(100) ≈ 53.7, wpAfter(0) = 50, drop ≈ 3.7 → 96.3%
-    // Para perda de 300: wpBefore(300) ≈ 66.4, wpAfter(0) = 50, drop ≈ 16.4 → 83.6%
-    expect(acc).toBeGreaterThan(90);
-    expect(acc).toBeLessThan(100);
+    // Fórmula oficial: 103.1668*exp(-0.04354*3.70) - 3.1669 + 1 ≈ 85.5
+    expect(acc).toBeGreaterThan(83);
+    expect(acc).toBeLessThan(88);
   });
 
-  it('perda de 300cp → ~83%', () => {
+  it('perda de 300cp (wp 66.4→50, winDiff ~16.4) → ~48% (fórmula Lichess)', () => {
     const acc = moveAccuracy(300, 0);
-    expect(acc).toBeGreaterThan(75);
-    expect(acc).toBeLessThan(95);
+    // Fórmula oficial: 103.1668*exp(-0.04354*16.40) - 3.1669 + 1 ≈ 48.4
+    expect(acc).toBeGreaterThan(45);
+    expect(acc).toBeLessThan(52);
   });
 
-  it('perda de 500cp → ~72%', () => {
+  it('perda de 500cp (wp 84.2→50, winDiff ~34.2) → ~21% (fórmula Lichess)', () => {
     const acc = moveAccuracy(500, 0);
-    expect(acc).toBeGreaterThan(60);
-    expect(acc).toBeLessThan(85);
+    // Fórmula oficial: 103.1668*exp(-0.04354*34.18) - 3.1669 + 1 ≈ 21.2
+    expect(acc).toBeGreaterThan(18);
+    expect(acc).toBeLessThan(24);
   });
 
-  it('perda muito alta → < 50%', () => {
+  it('perda muito alta (perde mate) → 0%', () => {
     const acc = moveAccuracy(10000, -10000);
-    // Perda enorme (perde mate): wpBefore(10000) ~99.99, wpAfter(-10000) ~0.01
-    // drop ≈ 99.98 → accuracy ≈ 0.02
-    expect(acc).toBeLessThan(10);
+    // winDiff ~99.98 → raw ≈ -1.93, +1 ≈ -0.93 → clamp 0
+    expect(acc).toBe(0);
   });
 
   it('monotonicamente decrescente com perda crescente', () => {

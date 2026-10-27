@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Chess } from 'chess.js';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -159,6 +160,27 @@ export function GameDetailPage() {
   const currentAnalysis: PositionAnalysis | null =
     analysisState.analysis?.positions?.find((p) => p.ply === currentPly) ?? null;
 
+  // UCI do último lance jogado para destacar no tabuleiro.
+  // positions[currentPly].move está em notação SAN (do PGN); o tabuleiro
+  // espera UCI. Convertemos via chess.js a partir da posição anterior.
+  const lastMoveUci = useMemo(() => {
+    if (currentPly === 0) return null;
+    const prevPos = positions[currentPly - 1];
+    const moveSan = positions[currentPly]?.move;
+    if (!moveSan || !prevPos) return null;
+    try {
+      const chess = new Chess(prevPos.fen);
+      const m = chess.move(moveSan);
+      return m ? `${m.from}${m.to}${m.promotion ?? ''}` : null;
+    } catch {
+      return null;
+    }
+  }, [currentPly, positions]);
+
+  // Melhor lance sugerido pela análise (UCI), para desenhar seta no tabuleiro.
+  // Só mostramos se for diferente do lance realmente jogado.
+  const bestMoveUci = currentAnalysis?.bestMove ?? null;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <Link to="/app/analises" className="inline-flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary">
@@ -197,7 +219,12 @@ export function GameDetailPage() {
         {/* Board side */}
         <div className="space-y-3">
           <div className="flex justify-center">
-            <Chessboard fen={currentFen} size={500} />
+            <Chessboard
+              fen={currentFen}
+              size={500}
+              lastMove={lastMoveUci}
+              bestMove={bestMoveUci}
+            />
           </div>
 
           {/* Eval bar + last move */}
