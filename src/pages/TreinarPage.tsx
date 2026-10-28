@@ -461,7 +461,7 @@ function InteractiveBoard({
                 key={square}
                 onClick={() => onSquareClick(square)}
                 className={`flex items-center justify-center cursor-pointer transition-colors ${
-                  isLight ? 'bg-[#e8e4d5]' : 'bg-[#658653]'
+                  isLight ? 'bg-[#3a4358]' : 'bg-[#1C2434]'
                 } ${isSelected ? 'ring-2 ring-brand-400 ring-inset' : ''} ${
                   isHighlightFrom ? 'bg-brand-500/30' : ''
                 } ${isHighlightTo ? 'bg-success-500/30' : ''}`}
@@ -469,20 +469,8 @@ function InteractiveBoard({
               >
                 {pieceKey && piece && (
                   <span
-                    className={`relative z-10 select-none leading-none ${
-                      piece.color === 'w' ? 'text-white' : 'text-[#171717]'
-                    }`}
-                    style={{
-                      fontFamily: '"DejaVu Sans", "Segoe UI Symbol", serif',
-                      fontSize: '1em',
-                      WebkitTextStroke:
-                        piece.color === 'w' ? '1px #343434' : '0.7px #f5f5f5',
-                      paintOrder: 'stroke fill',
-                      filter:
-                        piece.color === 'w'
-                          ? 'drop-shadow(0 2px 2px rgba(0,0,0,0.65))'
-                          : 'drop-shadow(0 2px 2px rgba(0,0,0,0.55))',
-                    }}
+                    className={`leading-none ${piece.color === 'w' ? 'text-content-primary' : 'text-[#0B0F19]'}`}
+                    style={{ textShadow: piece.color === 'w' ? '0 1px 2px rgba(0,0,0,0.5)' : '0 1px 2px rgba(255,255,255,0.15)' }}
                   >
                     {pieceUnicode[pieceKey]}
                   </span>
