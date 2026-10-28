@@ -133,11 +133,26 @@ export function parsePgnFile(content: string): ParseResult {
       const roundTime = getHeader(pgn, 'RoundTime') || getHeader(pgn, 'StartTime');
       const timeControl = getHeader(pgn, 'TimeControl');
       const openingEco = getHeader(pgn, 'ECO');
+      // Tentar [Opening] primeiro, depois [ECOUrl] (Chess.com), depois tabela ECO
       const openingName = getHeader(pgn, 'Opening');
+      const ecoUrl = getHeader(pgn, 'ECOUrl');
       const link = getHeader(pgn, 'Link') || getHeader(pgn, 'Site');
       const externalId = link ? link : null;
 
       const playedAt = parsePgnDate(dateStr, roundTime);
+
+      // Determinar o nome da abertura: [Opening] > [ECOUrl] > tabela ECO > null
+      let resolvedOpeningName: string | null = null;
+      if (openingName && openingName !== '?') {
+        resolvedOpeningName = openingName;
+      } else if (ecoUrl) {
+        const urlMatch = ecoUrl.match(/\/openings\/(.+)$/);
+        if (urlMatch) {
+          resolvedOpeningName = urlMatch[1].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        }
+      }
+      // Se ainda não temos nome, a tabela ECO em openings.ts será usada
+      // pelo extractOpeningInfo quando a página de repertório processar o PGN.
 
       games.push({
         pgn,
@@ -147,7 +162,7 @@ export function parsePgnFile(content: string): ParseResult {
         playedAt,
         timeControl: timeControl && timeControl !== '?' ? timeControl : null,
         openingEco: openingEco && openingEco !== '?' ? openingEco : null,
-        openingName: openingName && openingName !== '?' ? openingName : null,
+        openingName: resolvedOpeningName,
         moves: history,
         externalId,
       });

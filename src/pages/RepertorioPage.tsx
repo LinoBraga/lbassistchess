@@ -72,7 +72,7 @@ export function RepertorioPage() {
         <TabButton active={tab === 'criticas'} onClick={() => setTab('criticas')} icon={<AlertTriangle className="h-4 w-4" />}>
           Posições críticas
         </TabButton>
-        <TabButton active={tab === 'variantes'} onClick={() => setTab('variantes')} icon={<GitBranch className="h-4 w-4" />}>
+        <TabButton active={tab === 'variantes'} onClick={() => { setTab('variantes'); repertoire.requestVariants(); }} icon={<GitBranch className="h-4 w-4" />}>
           Variantes
         </TabButton>
       </div>
@@ -407,8 +407,6 @@ function VariantsTab({ repertoire }: { repertoire: ReturnType<typeof useRepertoi
   const { variantTrees, totalGames, gamesWithAnalysis } = repertoire;
   const [color, setColor] = useState<'white' | 'black'>('white');
 
-  const tree = color === 'white' ? variantTrees.asWhite : variantTrees.asBlack;
-
   if (totalGames === 0) {
     return (
       <EmptyState
@@ -419,6 +417,7 @@ function VariantsTab({ repertoire }: { repertoire: ReturnType<typeof useRepertoi
     );
   }
 
+  const tree = color === 'white' ? variantTrees.asWhite : variantTrees.asBlack;
   const gamesForColor = tree.root.games.length;
 
   if (gamesForColor === 0) {

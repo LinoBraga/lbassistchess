@@ -6,6 +6,7 @@ import {
   computeOpeningFrequency,
   computeCriticalPositions,
   computeVariantTrees,
+  clearOpeningInfoCache,
   type GameForRepertoire,
   type AnalysisForRepertoire,
   type OpeningStat,
@@ -23,6 +24,11 @@ interface RepertoireState {
 export type PeriodFilter = 'all' | '30d' | '90d';
 export type TimeControlFilter = 'all' | 'blitz' | 'rapid' | 'classical';
 
+const EMPTY_TREES: { asWhite: VariantTree; asBlack: VariantTree } = {
+  asWhite: { root: { ply: 0, fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', move: null, evalCp: null, evalMate: null, bestMove: null, depth: 0, hasEngineData: false, games: [] }, children: new Map() },
+  asBlack: { root: { ply: 0, fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', move: null, evalCp: null, evalMate: null, bestMove: null, depth: 0, hasEngineData: false, games: [] }, children: new Map() },
+};
+
 export function useRepertoire() {
   const { profile } = useAuth();
   const [state, setState] = useState<RepertoireState>({
@@ -37,6 +43,7 @@ export function useRepertoire() {
   const load = useCallback(async () => {
     if (!profile?.id) return;
     setState((s) => ({ ...s, loading: true, error: null }));
+    clearOpeningInfoCache();
 
     try {
       const { data: games, error: gamesError } = await supabase
@@ -89,17 +96,29 @@ export function useRepertoire() {
     [state.games, state.analyses],
   );
 
+  // Variant tree computation is expensive (replays every game with chess.js).
+  // Defer until the user opens the "Variantes" tab.
+  const [variantsRequested, setVariantsRequested] = useState(false);
   const variantTrees = useMemo<{ asWhite: VariantTree; asBlack: VariantTree }>(
-    () => computeVariantTrees(state.games, state.analyses),
-    [state.games, state.analyses],
+    () => {
+      if (!variantsRequested) return EMPTY_TREES;
+      return computeVariantTrees(state.games, state.analyses);
+    },
+    [state.games, state.analyses, variantsRequested],
   );
 
+  const requestVariants = useCallback(() => setVariantsRequested(true), []);
+
   const totalGames = state.games.length;
-  const gamesWithOpenings = state.games.filter((g) => {
-    if (g.opening_name && g.opening_name !== '?') return true;
-    const headerName = g.pgn.match(/\[Opening\s+"([^"]*)"\]/);
-    return headerName && headerName[1] && headerName[1] !== '?';
-  }).length;
+  const gamesWithOpenings = useMemo(
+    () =>
+      state.games.filter((g) => {
+        if (g.opening_name && g.opening_name !== '?') return true;
+        const headerName = g.pgn.match(/\[Opening\s+"([^"]*)"\]/);
+        return headerName && headerName[1] && headerName[1] !== '?';
+      }).length,
+    [state.games],
+  );
   const gamesWithAnalysis = state.analyses.length;
 
   return {
@@ -112,6 +131,7 @@ export function useRepertoire() {
     openings,
     criticalPositions,
     variantTrees,
+    requestVariants,
     totalGames,
     gamesWithOpenings,
     gamesWithAnalysis,
