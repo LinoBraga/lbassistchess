@@ -1,0 +1,25 @@
+{
+  "projectId": "72414280",
+  "functions": {
+    "asaas-billing": {
+      "hasChanged": false,
+      "hash": "b09ea0a148203ba668a2858a5daf00e16b5805b0da3822a9c85a4814e1d12a4f"
+    },
+    "asaas-checkout": {
+      "hasChanged": false,
+      "hash": "a2a337b43a0a74d464e37c56e1dd33a7308508ac114233fb32f86db9a00eb8ff"
+    },
+    "asaas-usage": {
+      "hasChanged": false,
+      "hash": "c7c21b910108b431ae4ee4441de773c84a856a2c162dfd83ef6bd1a22e7eccf8"
+    },
+    "asaas-webhook": {
+      "hasChanged": false,
+      "hash": "1188de6aa1246ea445fcbc90c171fc68c22181d5f29102a5dc41ce3a8e3c4536"
+    },
+    "fetch-games": {
+      "hasChanged": false,
+      "hash": "7da3c6dfa2b69f8e1c53d9b4e1c8692f6aa2e58a4ab1feeb252de718ba8c7a49"
+    }
+  }
+}
