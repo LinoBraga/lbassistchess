@@ -55,8 +55,25 @@ Deno.serve(async (req: Request) => {
     }
 
     const user = authData.user;
-    const body: { plan_id: string; billing_type: string } = await req.json();
-        const allowedBillingTypes = ["PIX", "CREDIT_CARD"];
+    const body: {
+      plan_id: string;
+      billing_type: string;
+      cpf_cnpj: string;
+    } = await req.json();
+
+    const documento = String(body.cpf_cnpj ?? "").replace(/\D/g, "");
+
+    if (documento.length !== 11 && documento.length !== 14) {
+      return new Response(
+        JSON.stringify({ error: "Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos." }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const allowedBillingTypes = ["PIX", "CREDIT_CARD"];
 
     if (!allowedBillingTypes.includes(body.billing_type)) {
       return new Response(
@@ -117,39 +134,85 @@ Deno.serve(async (req: Request) => {
         }
 
     // Get or create Asaas customer
-    const { data: existingCustomer } = await supabase
+    const { data: existingCustomer, error: customerLookupError } = await supabase
       .from("asaas_customers")
       .select("asaas_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
+    if (customerLookupError) {
+      throw new Error("Não foi possível consultar o cliente cadastrado.");
+    }
+
     let customerId = existingCustomer?.asaas_customer_id;
 
-    if (!customerId) {
-      const customerPayload = {
-        name: user.user_metadata?.display_name ?? user.email?.split("@")[0] ?? "Cliente",
-        email: user.email,
-        externalReference: user.id,
-      };
+    const customerPayload = {
+      name:
+        user.user_metadata?.display_name ??
+        user.email?.split("@")[0] ??
+        "Cliente",
+      email: user.email,
+      cpfCnpj: documento,
+      externalReference: user.id,
+    };
 
-      const { status: custStatus, data: custData } = await asaasFetch("/customers", {
-        method: "POST",
-        body: JSON.stringify(customerPayload),
-      });
+    if (customerId) {
+      // Atualiza o documento do cliente que já existe no Asaas.
+      const { status: updateStatus, data: updateData } = await asaasFetch(
+        `/customers/${customerId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(customerPayload),
+        },
+      );
+
+      if (updateStatus >= 400) {
+        return new Response(
+          JSON.stringify({
+            error: "Falha ao atualizar CPF/CNPJ no Asaas",
+            details: updateData,
+          }),
+          {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+    } else {
+      // Cria um cliente novo já com o CPF/CNPJ.
+      const { status: custStatus, data: custData } = await asaasFetch(
+        "/customers",
+        {
+          method: "POST",
+          body: JSON.stringify(customerPayload),
+        },
+      );
 
       if (custStatus >= 400) {
-        return new Response(JSON.stringify({ error: "Falha ao criar cliente no Asaas", details: custData }), {
-          status: 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            error: "Falha ao criar cliente no Asaas",
+            details: custData,
+          }),
+          {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       customerId = (custData as { id: string }).id;
 
-      await supabase.from("asaas_customers").insert({
-        user_id: user.id,
-        asaas_customer_id: customerId,
-      });
+      const { error: insertCustomerError } = await supabase
+        .from("asaas_customers")
+        .insert({
+          user_id: user.id,
+          asaas_customer_id: customerId,
+        });
+
+      if (insertCustomerError) {
+        throw new Error("O cliente foi criado no Asaas, mas não foi salvo no sistema.");
+      }
     }
 
     // Create subscription in Asaas

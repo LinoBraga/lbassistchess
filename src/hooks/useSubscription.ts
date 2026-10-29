@@ -81,33 +81,54 @@ export function useSubscription() {
     fetchBilling();
   }, [fetchBilling]);
 
+
   const createCheckout = useCallback(
-    async (planId: string, billingType: string): Promise<CheckoutResponse | null> => {
+    async (
+      planId: string,
+      billingType: string,
+      cpfCnpj: string,
+    ): Promise<CheckoutResponse | null> => {
       if (!session?.access_token) return null;
+
       setCreating(true);
       setError(null);
 
       try {
         const { VITE_SUPABASE_URL } = import.meta.env;
-        const response = await fetch(`${VITE_SUPABASE_URL}/functions/v1/asaas-checkout`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
+
+        const response = await fetch(
+          `${VITE_SUPABASE_URL}/functions/v1/asaas-checkout`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              plan_id: planId,
+              billing_type: billingType,
+              cpf_cnpj: cpfCnpj.replace(/\D/g, ''),
+            }),
           },
-          body: JSON.stringify({ plan_id: planId, billing_type: billingType }),
-        });
+        );
 
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
-          throw new Error(err.error ?? `Erro ao criar cobrança (${response.status})`);
+          throw new Error(
+            err.error ?? `Erro ao criar cobrança (${response.status})`,
+          );
         }
 
         const data: CheckoutResponse = await response.json();
+
         await fetchBilling();
         return data;
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao criar cobrança');
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Erro ao criar cobrança',
+        );
         return null;
       } finally {
         setCreating(false);
@@ -115,6 +136,7 @@ export function useSubscription() {
     },
     [session?.access_token, fetchBilling],
   );
+
 
   const cancelSubscription = useCallback(async (): Promise<boolean> => {
     if (!session?.access_token) return false;
