@@ -38,7 +38,7 @@ export function AssinaturaPage() {
     useSubscription();
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [canceling, setCanceling] = useState(false);
-  const [billingType, setBillingType] = useState('BOLETO');
+  const [billingType, setBillingType] = useState('PIX');
 
   if (loading) return <LoadingState label="Carregando assinatura…" />;
   if (error && !billing) return <ErrorState message={error} onRetry={refresh} />;
@@ -49,18 +49,27 @@ export function AssinaturaPage() {
   const statusConfig = subscription?.status ? STATUS_CONFIG[subscription.status] : null;
 
   const handleCheckout = async () => {
-    if (!plan) return;
+    if (!plan || creating) return;
+
+    // Abre a aba diretamente no clique para evitar bloqueio de popup.
+    const checkoutWindow = window.open('about:blank', '_blank');
+
+    if (!checkoutWindow) {
+      toast('error', 'Permita pop-ups para abrir o checkout de pagamento.');
+      return;
+    }
+
+    checkoutWindow.document.title = 'Checkout - LB Assist Chess';
+    checkoutWindow.document.body.innerHTML =
+      '<p style="font-family:sans-serif;padding:24px">Preparando seu pagamento...</p>';
+
     const result = await createCheckout('pro', billingType);
+
     if (result?.checkout_url) {
-      window.open(result.checkout_url, '_blank', 'noopener,noreferrer');
-      toast('info', 'Cobrança criada. Você será redirecionado para pagamento.');
-    } else if (result) {
-      toast(
-        'success',
-        billingType === 'BOLETO'
-          ? 'Assinatura criada. O boleto será enviado por e-mail.'
-          : 'Assinatura criada. Aguardando confirmação de pagamento.',
-      );
+      checkoutWindow.location.href = result.checkout_url;
+      toast('info', 'Abrindo o checkout seguro do Asaas.');
+    } else {
+      checkoutWindow.close();
     }
   };
 
@@ -276,7 +285,7 @@ export function AssinaturaPage() {
           </p>
 
           <div className="grid sm:grid-cols-3 gap-3 mb-4">
-            {(['BOLETO', 'PIX', 'CREDIT_CARD'] as const).map((type) => (
+            {([ 'PIX', 'CREDIT_CARD'] as const).map((type) => (
               <button
                 key={type}
                 onClick={() => setBillingType(type)}
@@ -287,7 +296,6 @@ export function AssinaturaPage() {
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  {type === 'BOLETO' && <Receipt className="h-4 w-4 text-content-secondary" />}
                   {type === 'PIX' && <CreditCard className="h-4 w-4 text-content-secondary" />}
                   {type === 'CREDIT_CARD' && <CreditCard className="h-4 w-4 text-content-secondary" />}
                   <span className="text-sm font-semibold text-content-primary">
@@ -295,7 +303,6 @@ export function AssinaturaPage() {
                   </span>
                 </div>
                 <p className="text-xs text-content-muted">
-                  {type === 'BOLETO' && 'Vence em 3 dias úteis'}
                   {type === 'PIX' && 'Pagamento imediato'}
                   {type === 'CREDIT_CARD' && 'Cobrança automática mensal'}
                 </p>
