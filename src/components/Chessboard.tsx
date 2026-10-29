@@ -18,10 +18,10 @@ const PIECE_UNICODE: Record<string, string> = {
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
 
-const LIGHT_SQ = '#ebecd0';
-const DARK_SQ = '#7fa550';
-const LAST_MOVE_LIGHT = '#f5f58a';
-const LAST_MOVE_DARK = '#c7d154';
+const LIGHT_SQ = '#f0f0d8';
+const DARK_SQ = '#86a666';
+const LAST_MOVE_LIGHT = '#f6f669';
+const LAST_MOVE_DARK = '#baca2b';
 
 export function Chessboard({ fen, size = 480, lastMove = null, bestMove = null }: ChessboardProps) {
   const board = useMemo(() => parseFen(fen), [fen]);
@@ -38,7 +38,7 @@ export function Chessboard({ fen, size = 480, lastMove = null, bestMove = null }
 
   return (
     <div
-      className="relative w-full select-none rounded-xl overflow-hidden border border-ink-border shadow-lg"
+      className="relative w-full select-none overflow-hidden rounded-sm border border-[#56604b] shadow-xl"
       style={{ maxWidth: size, aspectRatio: '1 / 1' }}
     >
       <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
@@ -63,17 +63,18 @@ export function Chessboard({ fen, size = 480, lastMove = null, bestMove = null }
                 style={{ backgroundColor: bg, fontSize: `clamp(28px, ${(size / 8) * 0.62}px, 60px)` }}
               >
                 {piece && (
-                  <span
-                    className={`leading-none relative z-10 ${piece[0] === 'w' ? 'text-white' : 'text-[#1a1a1a]'}`}
+                  <img
+                    src={`/pieces/cburnett/${piece}.svg`}
+                    alt=""
+                    draggable={false}
+                    className="relative z-10 h-[96%] w-[96%] select-none object-contain"
                     style={{
-                      textShadow:
-                        piece[0] === 'w'
-                          ? '0 1px 3px rgba(0,0,0,0.4), 0 0 1px rgba(0,0,0,0.2)'
-                          : '0 1px 2px rgba(255,255,255,0.15)',
+                      filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.12))',
                     }}
-                  >
-                    {PIECE_UNICODE[piece]}
-                  </span>
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden';
+                    }}
+                  />
                 )}
                 {colIdx === 0 && (
                   <span

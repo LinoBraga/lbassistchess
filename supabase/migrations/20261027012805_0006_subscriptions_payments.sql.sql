@@ -192,12 +192,12 @@ UPDATE app_config SET value = '[
   {
     "id":"pro",
     "name":"LB Assist Chess Pro",
-    "price_monthly":14.90,
+    "price_monthly":19.99,
     "currency":"BRL",
     "asaas_plan_id":null,
     "features":[
       "Importação ilimitada de partidas (Chess.com, Lichess e PGN)",
-      "Análise com Stockfish de até 40 partidas por mês",
+      "Análise com Stockfish Ilimitadas",
       "Diagnóstico personalizado e relatório consolidado",
       "Treinamento adaptativo com repetição espaçada",
       "Plano semanal de estudo personalizado",

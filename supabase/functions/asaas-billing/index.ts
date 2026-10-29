@@ -88,8 +88,8 @@ Deno.serve(async (req: Request) => {
       }>;
 
       const plan = subscription
-        ? plans.find((p) => p.id === subscription.plan_id)
-        : null;
+      ? plans.find((p) => p.id === subscription.plan_id)
+      : plans.find((p) => p.id === "pro");
 
       return new Response(JSON.stringify({
         subscription: subscription

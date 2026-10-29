@@ -31,12 +31,16 @@ export function generateExercises(
   limit: number = 20,
 ): GeneratedExercise[] {
   const exercises: GeneratedExercise[] = [];
-  const seen = new Set<string>(); // (gameId, ply)
-
+  const seen = new Set<string>();
+  const seenPositions = new Set<string>();
   // Priorizar blunders > mistakes > inaccuracies
   const allErrors = games.flatMap((game) =>
     game.positions
-      .filter((p) => p.classification && p.classification !== 'best' && p.classification !== 'excellent')
+      .filter((p) =>
+        p.classification === 'blunder' ||
+        p.classification === 'mistake' ||
+        p.classification === 'inaccuracy'
+      )
       .map((p) => ({ game, position: p })),
   );
 
@@ -59,10 +63,16 @@ export function generateExercises(
 
     // O bestMove virá da posição ANTERIOR, não da posição do erro
     if (!previousPosition.bestMove) continue;
+    const chess = new Chess(previousPosition.fen);
 
+    // Ignora contadores de lances, mantendo turno, roque e en passant.
+    const positionKey = chess.fen().split(' ').slice(0, 4).join(' ');
+
+    if (seenPositions.has(positionKey)) continue;
     const exercise = buildExercise(game, previousPosition, position);
     if (exercise) {
       seen.add(key);
+      seenPositions.add(positionKey);
       exercises.push(exercise);
     }
   }

@@ -56,6 +56,22 @@ Deno.serve(async (req: Request) => {
 
     const user = authData.user;
     const body: { plan_id: string; billing_type: string } = await req.json();
+        const allowedBillingTypes = ["PIX", "CREDIT_CARD"];
+
+    if (!allowedBillingTypes.includes(body.billing_type)) {
+      return new Response(
+        JSON.stringify({
+          error: "Forma de pagamento inválida. Escolha PIX ou cartão de crédito.",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
 
     // Load plans from app_config
     const { data: configRow } = await supabase
@@ -85,12 +101,20 @@ Deno.serve(async (req: Request) => {
       .in("status", ["ativa", "pendente"])
       .maybeSingle();
 
-    if (existingSub && existingSub.status === "ativa") {
-      return new Response(JSON.stringify({ error: "Você já possui uma assinatura ativa" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+        if (existingSub) {
+          const message =
+            existingSub.status === "ativa"
+              ? "Você já possui uma assinatura ativa"
+              : "Você já possui uma assinatura pendente";
+
+          return new Response(JSON.stringify({ error: message }), {
+            status: 409,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          });
+        }
 
     // Get or create Asaas customer
     const { data: existingCustomer } = await supabase

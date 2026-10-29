@@ -21,8 +21,8 @@ export function useUsageCheck() {
     setChecking(true);
 
     try {
-      const { SUPABASE_URL } = import.meta.env;
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/asaas-usage`, {
+      const { VITE_SUPABASE_URL } = import.meta.env;
+      const response = await fetch(`${VITE_SUPABASE_URL}/functions/v1/asaas-usage`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
@@ -46,9 +46,9 @@ export function useUsageCheck() {
       if (!session?.access_token) return false;
 
       try {
-        const { SUPABASE_URL } = import.meta.env;
+        const { VITE_SUPABASE_URL } = import.meta.env;
         const response = await fetch(
-          `${SUPABASE_URL}/functions/v1/asaas-usage?action=increment`,
+          `${VITE_SUPABASE_URL}/functions/v1/asaas-usage?action=increment`,
           {
             method: 'POST',
             headers: {

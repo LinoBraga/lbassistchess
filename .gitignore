@@ -21,3 +21,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+# Arquivos temporários do Supabase
+supabase/.temp/
+supabase/.branches/

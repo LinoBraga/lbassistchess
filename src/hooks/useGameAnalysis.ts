@@ -148,16 +148,18 @@ export function useGameAnalysis(gameId: string | undefined) {
 
       // Verificar limite de uso no backend antes de iniciar
       const usage = await checkUsage();
-      if (usage && !usage.can_analyze) {
+      if (!usage || !usage.has_active_subscription || !usage.can_analyze) {
         setState((s) => ({
           ...s,
           status: 'falhou',
-          error: `Você atingiu o limite de ${usage.limit} análises neste mês.`,
+          error: !usage
+            ? 'Não foi possível verificar sua assinatura. Tente novamente.'
+            : !usage.has_active_subscription
+              ? 'Você precisa de uma assinatura ativa para analisar partidas.'
+              : 'Você não pode iniciar uma nova análise neste momento.',
         }));
         return;
       }
-
-      setState((s) => ({ ...s, status: 'aguardando', error: null, progress: null }));
 
       // Criar registro de análise no banco
       const { data: existingActive } = await supabase

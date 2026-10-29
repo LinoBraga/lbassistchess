@@ -56,8 +56,8 @@ export function useSubscription() {
     setError(null);
 
     try {
-      const { SUPABASE_URL } = import.meta.env;
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/asaas-billing`, {
+      const { VITE_SUPABASE_URL } = import.meta.env;
+      const response = await fetch(`${VITE_SUPABASE_URL}/functions/v1/asaas-billing`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
@@ -88,8 +88,8 @@ export function useSubscription() {
       setError(null);
 
       try {
-        const { SUPABASE_URL } = import.meta.env;
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/asaas-checkout`, {
+        const { VITE_SUPABASE_URL } = import.meta.env;
+        const response = await fetch(`${VITE_SUPABASE_URL}/functions/v1/asaas-checkout`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -121,9 +121,9 @@ export function useSubscription() {
     setError(null);
 
     try {
-      const { SUPABASE_URL } = import.meta.env;
+      const { VITE_SUPABASE_URL } = import.meta.env;
       const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/asaas-billing?action=cancel`,
+        `${VITE_SUPABASE_URL}/functions/v1/asaas-billing?action=cancel`,
         {
           method: 'POST',
           headers: {

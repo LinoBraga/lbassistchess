@@ -225,10 +225,10 @@ FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 -- Valores iniciais
 INSERT INTO app_config (key, value, is_public) VALUES
   ('plans', '[
-    {"id":"pro","name":"LB Assist Chess Pro","price_monthly":14.90,"currency":"BRL",
+    {"id":"pro","name":"LB Assist Chess Pro","price_monthly":19.99,"currency":"BRL",
      "features":[
        "Importação ilimitada de partidas (Chess.com, Lichess e PGN)",
-       "Análise com Stockfish de até 40 partidas por mês",
+       "Análise com Stockfish Ilimitadas",
        "Diagnóstico personalizado e relatório consolidado",
        "Treinamento adaptativo com repetição espaçada",
        "Plano semanal de estudo personalizado",

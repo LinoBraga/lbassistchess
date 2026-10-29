@@ -68,15 +68,22 @@ Deno.serve(async (req: Request) => {
         .limit(1)
         .maybeSingle();
 
-      const activePlanId = subscription?.status === "ativa" ? subscription.plan_id : null;
+      const activePlanId =
+        subscription?.status === "ativa"
+          ? subscription.plan_id
+          : null;
+
       const plan = activePlanId
         ? plans.find((p) => p.id === activePlanId)
-        : plans[0];
+        : null;
 
+      const hasActiveSubscription = Boolean(plan);
       const analysesLimit = plan?.limits?.analyses_per_month ?? 0;
       const currentCount = usage?.analyses_count ?? 0;
 
-      const canAnalyze = analysesLimit === 0 || currentCount < analysesLimit;
+      const canAnalyze =
+        hasActiveSubscription &&
+        (analysesLimit === 0 || currentCount < analysesLimit);
 
       return new Response(JSON.stringify({
         can_analyze: canAnalyze,
@@ -84,7 +91,7 @@ Deno.serve(async (req: Request) => {
         limit: analysesLimit,
         remaining: analysesLimit === 0 ? -1 : Math.max(0, analysesLimit - currentCount),
         period: currentPeriod,
-        has_active_subscription: subscription?.status === "ativa",
+        has_active_subscription: hasActiveSubscription,
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -142,6 +149,66 @@ Deno.serve(async (req: Request) => {
       const limit = plan?.limits?.analyses_per_month ?? 0;
 
       // Call atomic RPC function
+      // Buscar o plano da assinatura ativa
+      const { data: configRow, error: configError } = await supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "plans")
+        .maybeSingle();
+
+      if (configError || !configRow) {
+        return new Response(
+          JSON.stringify({ error: "Não foi possível verificar o plano" }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      const plans = (configRow.value ?? []) as Array<{
+        id: string;
+        limits: { analyses_per_month: number };
+      }>;
+
+      const { data: subscription, error: subscriptionError } = await supabase
+        .from("subscriptions")
+        .select("plan_id, status, current_period_end")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const periodEnd = subscription?.current_period_end;
+      const periodStillValid =
+        !periodEnd ||
+        periodEnd >= new Date().toISOString().slice(0, 10);
+
+      const plan =
+        !subscriptionError &&
+        subscription?.status === "ativa" &&
+        periodStillValid
+          ? plans.find((p) => p.id === subscription.plan_id)
+          : null;
+
+      if (!plan) {
+        return new Response(
+          JSON.stringify({ error: "Assinatura ativa necessária" }),
+          {
+            status: 403,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      const limit = plan.limits?.analyses_per_month ?? 0;
+      
       const { data: result, error: rpcError } = await supabase.rpc("increment_usage", {
         p_user_id: user.id,
         p_game_id: body.game_id,

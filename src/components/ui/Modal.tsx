@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useEffect } from 'react';
-
+import { createPortal } from 'react-dom';
 interface ModalProps {
   open: boolean;
   onClose: () => void;
@@ -32,7 +32,7 @@ export function Modal({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
@@ -43,7 +43,7 @@ export function Modal({
         onClick={onClose}
       />
       <div
-        className={`relative w-full ${maxWidth} card-raised animate-scale-in max-h-[90vh] overflow-y-auto`}
+        className={`relative z-10 w-full ${maxWidth} card-raised max-h-[90vh] overflow-y-auto`}
       >
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-ink-border">
@@ -59,6 +59,8 @@ export function Modal({
         )}
         <div className="p-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
+  
